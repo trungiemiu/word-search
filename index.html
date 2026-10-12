@@ -25,6 +25,52 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  <script src="./firebase-config.js"></script>
+  <script>
+    window.firebaseBridgeReady = new Promise(resolve => { window.__resolveFirebaseBridge = resolve; });
+  </script>
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
+    import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
+    import { getDatabase, ref, get, set, update, onValue, runTransaction } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
+
+    const config = window.FIREBASE_CONFIG || {};
+    if (!config.apiKey || String(config.apiKey).includes('DAN_CONFIG')) {
+      window.__resolveFirebaseBridge({ enabled: false });
+    } else {
+      try {
+        const app = initializeApp(config);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+        const signIn = async () => (auth.currentUser || (await signInAnonymously(auth)).user);
+        window.__resolveFirebaseBridge({
+          enabled: true,
+          signIn,
+          async getRoom(code) { const snap = await get(ref(db, `rooms/${code}`)); return snap.exists() ? snap.val() : null; },
+          async createRoom(code, value) { await set(ref(db, `rooms/${code}`), value); },
+          async joinRoom(code, uid, player) {
+            const guestRef = ref(db, `rooms/${code}/guestId`);
+            const claim = await runTransaction(guestRef, current => current || uid, { applyLocally: false });
+            if (!claim.committed || claim.snapshot.val() !== uid) throw new Error('ROOM_FULL');
+            try { await set(ref(db, `rooms/${code}/players/${uid}`), player); }
+            catch (error) { await set(guestRef, null).catch(() => {}); throw error; }
+          },
+          async leaveRoom(code, uid, isHost) {
+            if (isHost) await set(ref(db, `rooms/${code}`), null);
+            else await update(ref(db, `rooms/${code}`), { [`players/${uid}`]: null, guestId: null });
+          },
+          async hostUpdate(code, value) { await update(ref(db, `rooms/${code}`), value); },
+          listenRoom(code, callback, onError) { return onValue(ref(db, `rooms/${code}`), snap => callback(snap.exists() ? snap.val() : null), onError); },
+          async transactGame(code, change) {
+            return runTransaction(ref(db, `rooms/${code}/game`), game => game ? change(game) : game, { applyLocally: false });
+          }
+        });
+      } catch (error) {
+        console.error(error);
+        window.__resolveFirebaseBridge({ enabled: false, error });
+      }
+    }
+  </script>
   <style>
     :root { --p1: #ec4899; --p2: #8b5cf6; }
     * { -webkit-tap-highlight-color: transparent; }
@@ -95,9 +141,10 @@
             <form id="setupForm" novalidate>
               <fieldset>
                 <legend class="mb-3 text-sm font-extrabold text-rose-800">Chế độ chơi</legend>
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div><input class="choice-input sr-only" type="radio" name="mode" id="mode1" value="1" checked><label for="mode1" class="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-rose-100 bg-white px-3 py-3 text-sm font-bold transition"><span>♥</span> Chơi 1 mình</label></div>
                   <div><input class="choice-input sr-only" type="radio" name="mode" id="mode2" value="2"><label for="mode2" class="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-rose-100 bg-white px-3 py-3 text-sm font-bold transition"><span>♥♥</span> Chơi 2 người</label></div>
+                  <div><input class="choice-input sr-only" type="radio" name="mode" id="modeOnline" value="online"><label for="modeOnline" class="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-rose-100 bg-white px-3 py-3 text-sm font-bold transition"><span>∞</span> Online</label></div>
                 </div>
               </fieldset>
 
@@ -118,6 +165,18 @@
                   <label for="name2" class="mb-2 block text-sm font-extrabold text-rose-800">Tên người chơi 2</label>
                   <input id="name2" maxlength="18" placeholder="Ví dụ: Gấu Nhỏ" class="w-full rounded-2xl border-2 border-rose-100 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-rose-300 focus:border-pink-400 focus:ring-4 focus:ring-pink-100" />
                   <div class="mt-3 flex items-center gap-3"><span class="text-xs font-bold text-rose-400">Màu:</span><div id="colors2" class="flex flex-wrap gap-2" aria-label="Chọn màu người chơi 2"></div></div>
+                </div>
+                <div id="onlineFields" class="hidden rounded-2xl border border-pink-100 bg-pink-50/70 p-4">
+                  <p class="text-sm font-extrabold text-rose-800">Phòng chơi online</p>
+                  <div class="mt-3 grid grid-cols-2 gap-2">
+                    <div><input class="choice-input sr-only" type="radio" name="onlineAction" id="createRoom" value="create" checked><label for="createRoom" class="block cursor-pointer rounded-xl border-2 border-rose-100 bg-white px-3 py-2 text-center text-xs font-extrabold">Tạo phòng</label></div>
+                    <div><input class="choice-input sr-only" type="radio" name="onlineAction" id="joinRoom" value="join"><label for="joinRoom" class="block cursor-pointer rounded-xl border-2 border-rose-100 bg-white px-3 py-2 text-center text-xs font-extrabold">Vào phòng</label></div>
+                  </div>
+                  <div id="roomCodeWrap" class="mt-3 hidden">
+                    <label for="roomCode" class="mb-1 block text-xs font-extrabold text-rose-600">Mã phòng gồm 6 ký tự</label>
+                    <input id="roomCode" maxlength="6" autocomplete="off" placeholder="VD: LOVE24" class="w-full rounded-xl border-2 border-rose-100 bg-white px-4 py-3 text-center font-mono text-lg font-black uppercase tracking-[.25em] outline-none focus:border-pink-400" />
+                  </div>
+                  <p class="mt-3 text-xs leading-relaxed text-rose-400">Người tạo phòng sẽ chọn bộ từ. Gửi mã hoặc link mời cho người còn lại.</p>
                 </div>
               </div>
               <p id="formError" class="mt-4 hidden rounded-xl bg-rose-50 px-3 py-2 text-center text-sm font-bold text-rose-600" role="alert"></p>
@@ -204,7 +263,9 @@
       const state = {
         mode: 1, players: [], active: 0, grid: [], placed: [], found: new Map(), owners: [],
         selecting: false, startCell: null, preview: [], elapsed: 0, timerId: null,
-        startedAt: null, paused: false, completed: false, currentSet: null, requestedSetId: 'random'
+        startedAt: null, paused: false, completed: false, currentSet: null, requestedSetId: 'random',
+        roomCode: null, uid: null, isHost: false, roomUnsubscribe: null, onlineGame: null,
+        onlineStarting: false, completionShown: false, firebase: null
       };
 
       function renderColorPickers() {
@@ -216,9 +277,8 @@
 
       function setupWelcome() {
         renderColorPickers();
-        $$('input[name="mode"]').forEach(input => input.addEventListener('change', () => {
-          $('#player2Fields').classList.toggle('hidden', input.value !== '2' || !input.checked);
-        }));
+        $$('input[name="mode"]').forEach(input => input.addEventListener('change', updateSetupMode));
+        $$('input[name="onlineAction"]').forEach(input => input.addEventListener('change', updateSetupMode));
         document.addEventListener('click', e => {
           const colorBtn = e.target.closest('.color-choice');
           if (colorBtn) {
@@ -231,6 +291,24 @@
         });
         $('#setupForm').addEventListener('submit', startFromForm);
         loadDatabase();
+        const invitedRoom = new URLSearchParams(location.search).get('room');
+        if (invitedRoom) {
+          $('#modeOnline').checked = true;
+          $('#joinRoom').checked = true;
+          $('#roomCode').value = invitedRoom.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+          updateSetupMode();
+        }
+      }
+
+      function updateSetupMode() {
+        const mode = $('input[name="mode"]:checked').value;
+        const online = mode === 'online';
+        const joining = online && $('input[name="onlineAction"]:checked').value === 'join';
+        $('#player2Fields').classList.toggle('hidden', mode !== '2');
+        $('#onlineFields').classList.toggle('hidden', !online);
+        $('#roomCodeWrap').classList.toggle('hidden', !joining);
+        $('#setSelect').disabled = !DATABASE.length || joining;
+        $('#startButton').innerHTML = online ? (joining ? 'Vào phòng <span class="ml-1">→</span>' : 'Tạo phòng <span class="ml-1">♡</span>') : 'Bắt đầu chơi <span class="ml-1">→</span>';
       }
 
       async function loadDatabase() {
@@ -246,6 +324,7 @@
           $('#setSelect').disabled = false;
           $('#startButton').disabled = false;
           status.textContent = `Đã sẵn sàng ${DATABASE.length} bộ từ · mỗi ván giữ nguyên một bộ`;
+          updateSetupMode();
         } catch (error) {
           status.innerHTML = 'Không tải được database. Hãy mở trang qua GitHub Pages hoặc một web server cục bộ.';
           status.classList.replace('text-rose-400', 'text-rose-600');
@@ -253,9 +332,10 @@
         }
       }
 
-      function startFromForm(e) {
+      async function startFromForm(e) {
         e.preventDefault();
-        const mode = Number($('input[name="mode"]:checked').value);
+        const rawMode = $('input[name="mode"]:checked').value;
+        const mode = rawMode === 'online' ? 'online' : Number(rawMode);
         const name1 = $('#name1').value.trim();
         const name2 = $('#name2').value.trim();
         const color1 = $('#colors1 .active').dataset.color;
@@ -271,13 +351,160 @@
         if (mode === 2) state.players.push({ name: name2, color: color2, score: 0 });
         document.documentElement.style.setProperty('--p1', color1);
         document.documentElement.style.setProperty('--p2', color2);
-        $('#welcomeScreen').classList.add('hidden');
-        $('#gameScreen').classList.remove('hidden');
-        newPuzzle();
+        if (mode === 'online') {
+          const action = $('input[name="onlineAction"]:checked').value;
+          const code = $('#roomCode').value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (action === 'join' && code.length !== 6) return showFormError('Mã phòng cần đủ 6 ký tự.');
+          $('#startButton').disabled = true;
+          try { await startOnline(action, code); }
+          catch (error) { console.error(error); showFormError(friendlyOnlineError(error)); }
+          finally { $('#startButton').disabled = false; }
+        } else {
+          $('#welcomeScreen').classList.add('hidden');
+          $('#gameScreen').classList.remove('hidden');
+          newPuzzle();
+        }
       }
 
       function showFormError(text) {
         const el = $('#formError'); el.textContent = text; el.classList.remove('hidden');
+      }
+
+      async function getFirebase() {
+        const bridge = await window.firebaseBridgeReady;
+        if (!bridge?.enabled) throw new Error('FIREBASE_NOT_CONFIGURED');
+        const user = await bridge.signIn();
+        state.firebase = bridge;
+        state.uid = user.uid;
+        return bridge;
+      }
+
+      function randomRoomCode() {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+      }
+
+      async function startOnline(action, requestedCode) {
+        leaveOnlineRoom();
+        const bridge = await getFirebase();
+        const player = { name: state.players[0].name, color: state.players[0].color, joinedAt: Date.now() };
+        let code = requestedCode;
+        if (action === 'create') {
+          for (let attempt = 0; attempt < 8; attempt++) {
+            code = randomRoomCode();
+            if (!(await bridge.getRoom(code))) break;
+          }
+          const chosen = state.requestedSetId === 'random'
+            ? DATABASE[Math.floor(Math.random() * DATABASE.length)]
+            : DATABASE.find(set => String(set.id) === String(state.requestedSetId));
+          await bridge.createRoom(code, {
+            hostId: state.uid, status: 'waiting', setId: chosen.id,
+            createdAt: Date.now(), players: { [state.uid]: player }
+          });
+          state.isHost = true;
+        } else {
+          const room = await bridge.getRoom(code);
+          if (!room) throw new Error('ROOM_NOT_FOUND');
+          if (room.status !== 'waiting' || Object.keys(room.players || {}).length >= 2) throw new Error('ROOM_FULL');
+          if (Object.values(room.players || {}).some(p => p.color === player.color)) throw new Error('COLOR_TAKEN');
+          await bridge.joinRoom(code, state.uid, player);
+          state.isHost = false;
+        }
+        state.roomCode = code;
+        state.completionShown = false;
+        $('#welcomeScreen').classList.add('hidden');
+        $('#gameScreen').classList.remove('hidden');
+        listenToRoom();
+      }
+
+      function listenToRoom() {
+        state.roomUnsubscribe?.();
+        state.roomUnsubscribe = state.firebase.listenRoom(state.roomCode, async room => {
+          if (!room) return onlineDisconnected('Phòng không còn tồn tại.');
+          const playerIds = Object.keys(room.players || {});
+          if (room.status === 'waiting') {
+            showWaitingRoom(playerIds.length);
+            if (state.isHost && playerIds.length === 2 && !state.onlineStarting) {
+              state.onlineStarting = true;
+              try {
+                state.currentSet = DATABASE.find(set => Number(set.id) === Number(room.setId)) || DATABASE[0];
+                const puzzle = createPuzzle();
+                const game = {
+                  grid: puzzle.grid,
+                  placed: puzzle.placed.map(({label, word, start, end, dr, dc}) => ({label, word, start, end, dr, dc})),
+                  found: {}, activeUid: room.hostId, startedAt: Date.now(), paused: false,
+                  pausedAt: 0, pausedTotal: 0, completed: false, round: 1
+                };
+                await state.firebase.hostUpdate(state.roomCode, { status: 'playing', playerOrder: [room.hostId, playerIds.find(id => id !== room.hostId)], game });
+              } finally { state.onlineStarting = false; }
+            }
+            return;
+          }
+          if (room.status === 'playing' && room.game) applyOnlineRoom(room);
+        }, error => onlineDisconnected(friendlyOnlineError(error)));
+      }
+
+      function showWaitingRoom(playerCount) {
+        const invite = `${location.origin}${location.pathname}?room=${state.roomCode}`;
+        openModal(`<div class="text-center">
+          <div class="text-4xl">💞</div><p class="mt-3 text-xs font-extrabold uppercase tracking-[.25em] text-pink-400">Phòng online</p>
+          <h2 class="mt-1 font-display text-3xl">${state.isHost ? 'Chờ người thương' : 'Đã vào phòng'}</h2>
+          <p class="mt-3 text-sm text-rose-400">${playerCount}/2 người đã sẵn sàng</p>
+          <div class="mx-auto mt-5 max-w-xs rounded-2xl bg-rose-50 px-4 py-4"><span class="block text-xs font-bold text-rose-400">Mã phòng</span><strong class="font-mono text-3xl tracking-[.22em] text-rose-700">${state.roomCode}</strong></div>
+          ${state.isHost ? `<button data-action="copy-invite" data-invite="${escapeHtml(invite)}" class="mt-5 w-full rounded-2xl bg-rose-500 px-4 py-3 font-extrabold text-white">Sao chép link mời</button>` : '<p class="mt-5 text-sm font-bold text-rose-500">Chủ phòng đang chuẩn bị bảng chữ…</p>'}
+          <button data-action="leave-room" class="mt-3 px-4 py-2 text-sm font-bold text-rose-400">Rời phòng</button>
+        </div>`);
+        $('#modal').dataset.kind = 'waiting';
+      }
+
+      function applyOnlineRoom(room) {
+        const order = room.playerOrder || Object.keys(room.players || {});
+        const foundEntries = Object.entries(room.game.found || {}).filter(([, owner]) => typeof owner === 'string' && owner);
+        state.players = order.map(uid => ({ ...room.players[uid], uid, score: foundEntries.filter(([,owner]) => owner === uid).length }));
+        state.currentSet = DATABASE.find(set => Number(set.id) === Number(room.setId)) || DATABASE[0];
+        state.grid = room.game.grid;
+        state.placed = room.game.placed;
+        state.found = new Map(foundEntries.map(([index, uid]) => [Number(index), order.indexOf(uid)]));
+        state.owners = Array.from({length: ROWS}, () => Array.from({length: COLS}, () => []));
+        state.found.forEach((owner, index) => {
+          const p = state.placed[index];
+          for (let k = 0; k < p.word.length; k++) state.owners[p.start[0] + p.dr*k][p.start[1] + p.dc*k].push(owner);
+        });
+        state.active = Math.max(0, order.indexOf(room.game.activeUid));
+        state.onlineGame = room.game;
+        state.paused = !!room.game.paused;
+        state.completed = !!room.game.completed;
+        if ($('#modal').dataset.kind === 'waiting') closeModal();
+        $('#gameArea').classList.toggle('board-paused', state.paused);
+        $('#pauseOverlay').classList.toggle('hidden', !state.paused);
+        $('#pauseOverlay').classList.toggle('flex', state.paused);
+        renderGame();
+        startTimer();
+        if (state.completed && !state.completionShown) finishGame();
+      }
+
+      function friendlyOnlineError(error) {
+        const key = error?.message || '';
+        if (key === 'FIREBASE_NOT_CONFIGURED') return 'Chưa cấu hình Firebase. Hãy làm theo FIREBASE_SETUP.md rồi upload lại.';
+        if (key === 'ROOM_NOT_FOUND') return 'Không tìm thấy phòng này. Kiểm tra lại mã nhé!';
+        if (key === 'ROOM_FULL') return 'Phòng đã đủ hai người hoặc ván đã bắt đầu.';
+        if (key === 'COLOR_TAKEN') return 'Màu này đã được người tạo phòng chọn. Hãy dùng màu khác.';
+        if (String(error?.code || '').toLowerCase().includes('permission')) return 'Firebase từ chối truy cập. Hãy kiểm tra Authentication và Database Rules.';
+        return 'Không thể kết nối phòng online. Hãy kiểm tra Firebase và mạng Internet.';
+      }
+
+      function onlineDisconnected(message) { showToast(message); leaveOnlineRoom(true); }
+      function leaveOnlineRoom(backToWelcome = false) {
+        state.roomUnsubscribe?.(); state.roomUnsubscribe = null; state.roomCode = null;
+        state.onlineGame = null; state.onlineStarting = false; stopTimer();
+        if (backToWelcome) { closeModal(); $('#gameScreen').classList.add('hidden'); $('#welcomeScreen').classList.remove('hidden'); }
+      }
+
+      async function quitOnlineRoom() {
+        const code = state.roomCode, uid = state.uid, isHost = state.isHost, bridge = state.firebase;
+        leaveOnlineRoom(true);
+        if (code && uid && bridge) try { await bridge.leaveRoom(code, uid, isHost); } catch (_) {}
+        history.replaceState({}, '', location.pathname);
       }
 
       function shuffle(array) {
@@ -330,6 +557,10 @@
       }
 
       function newPuzzle() {
+        if (state.mode === 'online') {
+          if (!state.isHost) return showToast('Chỉ người tạo phòng mới có thể đổi màn ♡');
+          return resetOnlinePuzzle();
+        }
         stopTimer();
         const chosen = state.requestedSetId === 'random'
           ? DATABASE[Math.floor(Math.random() * DATABASE.length)]
@@ -349,6 +580,22 @@
         renderGame(); startTimer();
       }
 
+      async function resetOnlinePuzzle() {
+        const chosen = state.requestedSetId === 'random'
+          ? DATABASE[Math.floor(Math.random() * DATABASE.length)]
+          : DATABASE.find(set => String(set.id) === String(state.requestedSetId));
+        state.currentSet = chosen || DATABASE[0];
+        const puzzle = createPuzzle();
+        const game = {
+          grid: puzzle.grid,
+          placed: puzzle.placed.map(({label, word, start, end, dr, dc}) => ({label, word, start, end, dr, dc})),
+          found: {}, activeUid: state.players[0].uid, startedAt: Date.now(), paused: false,
+          pausedAt: 0, pausedTotal: 0, completed: false, round: Number(state.onlineGame?.round || 0) + 1
+        };
+        state.completionShown = false;
+        await state.firebase.hostUpdate(state.roomCode, { setId: state.currentSet.id, game, status: 'playing' });
+      }
+
       function renderGame() {
         $('#setTitle').textContent = `#${String(state.currentSet.id).padStart(3, '0')} · ${state.currentSet.title}`;
         $('#letterGrid').innerHTML = state.grid.flatMap((row, r) => row.map((letter, c) => `<div class="letter-cell" data-r="${r}" data-c="${c}" role="gridcell" aria-label="${letter}, hàng ${r+1}, cột ${c+1}">${letter}</div>`)).join('');
@@ -360,6 +607,7 @@
         const grid = $('#letterGrid');
         grid.addEventListener('pointerdown', e => {
           if (state.paused || state.completed) return;
+          if (state.mode === 'online' && state.players[state.active]?.uid !== state.uid) return showToast('Chưa đến lượt của bạn ♡');
           const cell = e.target.closest('.letter-cell'); if (!cell) return;
           e.preventDefault(); grid.setPointerCapture?.(e.pointerId);
           state.selecting = true; state.startCell = [Number(cell.dataset.r), Number(cell.dataset.c)];
@@ -408,7 +656,7 @@
         if (index >= 0) foundWord(index, selected);
         else {
           showToast(selected.length > 1 ? 'Chưa đúng rồi, thử lại nhé ♡' : 'Kéo qua các chữ theo một đường thẳng');
-          nextTurn();
+          if (state.mode === 'online') advanceOnlineTurn(); else nextTurn();
         }
         state.startCell = null;
       }
@@ -416,6 +664,7 @@
       function cancelSelection() { if (!state.selecting) return; state.selecting = false; clearPreview(); state.startCell = null; }
 
       function foundWord(index, cells) {
+        if (state.mode === 'online') return submitOnlineWord(index);
         const owner = state.active;
         state.found.set(index, owner);
         state.players[owner].score++;
@@ -440,12 +689,35 @@
         updateStatus();
       }
 
+      async function submitOnlineWord(index) {
+        const uid = state.uid;
+        await state.firebase.transactGame(state.roomCode, game => {
+          if (game.completed || game.paused || game.activeUid !== uid || game.found?.[index]) return game;
+          game.found = game.found || {};
+          game.found[index] = uid;
+          const order = state.players.map(p => p.uid);
+          game.activeUid = order[(order.indexOf(uid) + 1) % order.length];
+          if (Object.values(game.found).filter(Boolean).length === game.placed.length) { game.completed = true; game.endedAt = Date.now(); }
+          return game;
+        });
+      }
+
+      async function advanceOnlineTurn() {
+        const uid = state.uid;
+        await state.firebase.transactGame(state.roomCode, game => {
+          if (game.completed || game.paused || game.activeUid !== uid) return game;
+          const order = state.players.map(p => p.uid);
+          game.activeUid = order[(order.indexOf(uid) + 1) % order.length];
+          return game;
+        });
+      }
+
       function updateStatus() {
         $('#progress').textContent = `${state.found.size}/${state.placed.length}`;
-        $('#turnLabel').innerHTML = state.mode === 2
+        $('#turnLabel').innerHTML = state.mode === 2 || state.mode === 'online'
           ? `Lượt của <span style="color:${state.players[state.active].color}">${escapeHtml(state.players[state.active].name)} ●</span>`
           : `Cố lên, <span style="color:${state.players[0].color}">${escapeHtml(state.players[0].name)}!</span>`;
-        $('#scoreboard').innerHTML = state.players.map((p,i) => `<div class="rounded-2xl border bg-white/80 px-3 py-2 shadow-card ${state.mode === 2 && i === state.active ? 'ring-2 ring-offset-1' : ''}" style="border-color:${p.color}55;--tw-ring-color:${p.color}"><span class="mr-1.5 inline-block h-2.5 w-2.5 rounded-full" style="background:${p.color}"></span><span class="text-xs font-extrabold">${escapeHtml(p.name)}</span><span class="ml-2 rounded-full px-2 py-0.5 text-xs font-black text-white" style="background:${p.color}">${p.score}</span></div>`).join('');
+        $('#scoreboard').innerHTML = state.players.map((p,i) => `<div class="rounded-2xl border bg-white/80 px-3 py-2 shadow-card ${(state.mode === 2 || state.mode === 'online') && i === state.active ? 'ring-2 ring-offset-1' : ''}" style="border-color:${p.color}55;--tw-ring-color:${p.color}"><span class="mr-1.5 inline-block h-2.5 w-2.5 rounded-full" style="background:${p.color}"></span><span class="text-xs font-extrabold">${escapeHtml(p.name)}</span><span class="ml-2 rounded-full px-2 py-0.5 text-xs font-black text-white" style="background:${p.color}">${p.score}</span></div>`).join('');
         state.placed.forEach((p,i) => {
           const li = $(`[data-word-index="${i}"]`); if (!li) return;
           const owner = state.found.get(i);
@@ -457,13 +729,34 @@
 
       function startTimer() {
         stopTimer();
-        state.timerId = setInterval(() => { if (!state.paused && !state.completed) { state.elapsed++; $('#timer').textContent = formatTime(state.elapsed); } }, 1000);
+        const tick = () => {
+          if (state.mode === 'online' && state.onlineGame) {
+            const end = state.onlineGame.completed ? (state.onlineGame.endedAt || Date.now()) : Date.now();
+            const currentPause = state.onlineGame.paused ? end - (state.onlineGame.pausedAt || end) : 0;
+            state.elapsed = Math.max(0, Math.floor((end - state.onlineGame.startedAt - (state.onlineGame.pausedTotal || 0) - currentPause) / 1000));
+            $('#timer').textContent = formatTime(state.elapsed);
+          } else if (!state.paused && !state.completed) {
+            state.elapsed++; $('#timer').textContent = formatTime(state.elapsed);
+          }
+        };
+        tick(); state.timerId = setInterval(tick, 1000);
       }
       function stopTimer() { if (state.timerId) clearInterval(state.timerId); state.timerId = null; }
       function formatTime(seconds) { const m = Math.floor(seconds/60), s = seconds%60; return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
 
-      function togglePause(forceResume = false) {
+      async function togglePause(forceResume = false) {
         if (state.completed) return;
+        if (state.mode === 'online') {
+          await state.firebase.transactGame(state.roomCode, game => {
+            const resume = forceResume || game.paused;
+            if (resume) {
+              game.pausedTotal = (game.pausedTotal || 0) + Math.max(0, Date.now() - (game.pausedAt || Date.now()));
+              game.paused = false; game.pausedAt = 0;
+            } else { game.paused = true; game.pausedAt = Date.now(); }
+            return game;
+          });
+          return;
+        }
         state.paused = forceResume ? false : !state.paused;
         $('#gameArea').classList.toggle('board-paused', state.paused);
         $('#pauseOverlay').classList.toggle('hidden', !state.paused);
@@ -472,7 +765,7 @@
       }
 
       function finishGame() {
-        state.completed = true; stopTimer();
+        state.completed = true; state.completionShown = true; stopTimer();
         const max = Math.max(...state.players.map(p => p.score));
         const winners = state.players.filter(p => p.score === max);
         const title = state.mode === 1 ? `Tuyệt vời, ${state.players[0].name}!` : winners.length > 1 ? 'Một trận hòa ngọt ngào!' : `${winners[0].name} chiến thắng!`;
@@ -506,7 +799,7 @@
       function showHistory() {
         const wasRunning = !state.paused && !state.completed; if (wasRunning) togglePause();
         const history = getHistory();
-        const rows = history.map((h,i) => `<tr class="border-t border-rose-50"><td class="py-3 pr-3 text-xs text-rose-400">${i+1}</td><td class="py-3 pr-3"><strong class="block text-sm">${h.players.map(p=>escapeHtml(p.name)).join(' & ')}</strong><span class="text-xs text-rose-400">${h.mode === 1 ? '1 người' : '2 người'} · ${h.players.map(p=>p.score).join('–')} ${h.setId ? `· #${h.setId} ${escapeHtml(h.setTitle || '')}` : ''}</span></td><td class="py-3 pr-3 text-sm font-bold">${formatTime(h.seconds)}</td><td class="py-3 text-right text-xs text-rose-400">${formatDate(h.date)}</td></tr>`).join('');
+        const rows = history.map((h,i) => `<tr class="border-t border-rose-50"><td class="py-3 pr-3 text-xs text-rose-400">${i+1}</td><td class="py-3 pr-3"><strong class="block text-sm">${h.players.map(p=>escapeHtml(p.name)).join(' & ')}</strong><span class="text-xs text-rose-400">${h.mode === 1 ? '1 người' : h.mode === 'online' ? 'Online' : '2 người'} · ${h.players.map(p=>p.score).join('–')} ${h.setId ? `· #${h.setId} ${escapeHtml(h.setTitle || '')}` : ''}</span></td><td class="py-3 pr-3 text-sm font-bold">${formatTime(h.seconds)}</td><td class="py-3 text-right text-xs text-rose-400">${formatDate(h.date)}</td></tr>`).join('');
         openModal(`
           <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-extrabold uppercase tracking-[.22em] text-pink-400">Our memories</p><h2 class="font-display text-3xl">Lịch sử ván chơi</h2></div><button data-action="close-modal${wasRunning ? '-resume' : ''}" class="grid h-9 w-9 place-items-center rounded-full bg-rose-50 font-bold text-rose-500" aria-label="Đóng">×</button></div>
           <div class="mt-5 overflow-x-auto">${history.length ? `<table class="w-full min-w-[430px]"><thead><tr class="text-left text-[10px] uppercase tracking-wider text-rose-300"><th>#</th><th>Người chơi</th><th>Thời gian</th><th class="text-right">Ngày chơi</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="rounded-2xl bg-rose-50 py-10 text-center"><div class="text-3xl">♡</div><p class="mt-2 text-sm font-bold text-rose-500">Chưa có kỷ niệm nào được lưu.</p></div>`}</div>
@@ -526,12 +819,24 @@
         else if (action === 'close-modal') closeModal();
         else if (action === 'close-modal-resume') { closeModal(); togglePause(true); }
         else if (action === 'close-modal-new') { closeModal(); newPuzzle(); }
-        else if (action === 'back-welcome') { closeModal(); stopTimer(); $('#gameScreen').classList.add('hidden'); $('#welcomeScreen').classList.remove('hidden'); }
+        else if (action === 'back-welcome') {
+          if (state.mode === 'online') quitOnlineRoom();
+          else { closeModal(); stopTimer(); $('#gameScreen').classList.add('hidden'); $('#welcomeScreen').classList.remove('hidden'); }
+        }
         else if (action === 'clear-history') { try { localStorage.removeItem('loveLettersHistory'); } catch (_) {} closeModal(); showHistory(); }
+        else if (action === 'copy-invite') {
+          const link = document.querySelector('[data-action="copy-invite"]')?.dataset.invite;
+          if (link) {
+            const copying = navigator.clipboard?.writeText(link);
+            if (copying) copying.then(() => showToast('Đã sao chép link mời ♥')).catch(() => showToast(link));
+            else showToast(link);
+          }
+        }
+        else if (action === 'leave-room') quitOnlineRoom();
       }
 
       function openModal(html) { $('#modalContent').innerHTML = html; $('#modal').classList.remove('hidden'); $('#modal').classList.add('flex'); }
-      function closeModal() { $('#modal').classList.add('hidden'); $('#modal').classList.remove('flex'); }
+      function closeModal() { $('#modal').classList.add('hidden'); $('#modal').classList.remove('flex'); delete $('#modal').dataset.kind; }
       function formatDate(iso) { return new Intl.DateTimeFormat('vi-VN', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(iso)); }
       function normalizeWord(value) { return String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z]/g, ''); }
       function escapeHtml(value) { const d = document.createElement('div'); d.textContent = String(value); return d.innerHTML; }
