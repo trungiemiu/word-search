@@ -91,10 +91,14 @@
     .choice-input:checked + label { border-color: #ec4899; background: #fff1f5; box-shadow: 0 0 0 3px rgba(236,72,153,.12); }
     .color-choice { width: 2.25rem; height: 2.25rem; border-radius: 999px; border: 3px solid white; box-shadow: 0 0 0 1px #fbcfe8; transition: .18s; }
     .color-choice.active { transform: scale(1.12); box-shadow: 0 0 0 3px #fff, 0 0 0 5px currentColor; }
-    #letterGrid { touch-action: none; user-select: none; -webkit-user-select: none; grid-template-columns: repeat(15, minmax(0, 1fr)); }
+    #letterGrid {
+      touch-action: none; user-select: none; -webkit-user-select: none;
+      grid-template-columns: repeat(15, minmax(0, 1fr));
+      grid-auto-rows: clamp(1.3rem, 2.1vw, 1.8rem);
+    }
     .letter-cell {
-      aspect-ratio: 1; display: grid; place-items: center; border-radius: clamp(.28rem, 1vw, .65rem);
-      font-size: clamp(.54rem, 1.75vw, .92rem); font-weight: 800; color: #6b2948;
+      display: grid; min-width: 0; place-items: center; border-radius: clamp(.25rem, .7vw, .5rem);
+      font-size: clamp(.68rem, 1.25vw, .95rem); line-height: 1; font-weight: 800; color: #6b2948;
       background: rgba(255,255,255,.74); border: 1px solid rgba(251,207,232,.8);
       transition: transform .12s, background .15s, color .15s, box-shadow .15s;
     }
@@ -107,7 +111,10 @@
     .toast { animation: toastIn .25s ease both, toastOut .3s ease 2.4s forwards; }
     @keyframes toastIn { from { opacity:0; transform:translate(-50%, 12px) } to { opacity:1; transform:translate(-50%,0) } }
     @keyframes toastOut { to { opacity:0; transform:translate(-50%,-8px) } }
-    @media (max-width: 380px) { .letter-cell { font-size: .5rem; border-radius: .2rem; } }
+    @media (max-width: 380px) {
+      #letterGrid { grid-auto-rows: 1.2rem; }
+      .letter-cell { font-size: .62rem; border-radius: .2rem; }
+    }
   </style>
 </head>
 <body class="noise font-sans text-rose-950 antialiased">
@@ -212,7 +219,7 @@
             </div>
           </div>
           <div class="grid items-start gap-4 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[250px_minmax(0,1fr)_170px]">
-            <aside class="rounded-3xl bg-gradient-to-b from-rose-50 to-pink-50/70 p-4 sm:p-5">
+            <aside class="order-2 rounded-3xl bg-gradient-to-b from-rose-50 to-pink-50/70 p-4 sm:p-5 lg:order-1">
               <div class="mb-4 flex items-center justify-between gap-2">
                 <div><p class="text-[9px] font-extrabold uppercase tracking-[.22em] text-pink-400">Hidden words</p><h2 id="setTitle" class="font-display text-xl">Bộ từ</h2></div>
                 <span id="progress" class="rounded-full bg-white px-2.5 py-1 text-xs font-extrabold text-pink-500 shadow-sm">0/10</span>
@@ -220,7 +227,7 @@
               <ul id="wordList" class="grid max-h-[34rem] grid-cols-2 gap-2 overflow-y-auto pr-1 lg:grid-cols-1"></ul>
             </aside>
 
-            <div class="mx-auto w-full max-w-[680px]">
+            <div class="order-1 mx-auto w-full max-w-[520px] lg:order-2">
               <div class="mb-3 flex items-center justify-between px-1">
                 <p id="turnLabel" class="text-sm font-extrabold text-rose-700"></p>
                 <p class="text-[10px] font-bold uppercase tracking-wider text-rose-300">Kéo theo đường thẳng</p>
@@ -228,7 +235,7 @@
               <div id="letterGrid" class="grid gap-0.5 rounded-[1.5rem] bg-rose-100/70 p-2 shadow-inner sm:gap-1 sm:p-3" role="grid" aria-label="Bảng tìm chữ 22 hàng, 15 cột"></div>
             </div>
 
-            <aside class="flex flex-row justify-center gap-2 lg:col-span-2 xl:col-span-1 xl:flex-col">
+            <aside class="order-3 flex flex-row justify-center gap-2 lg:col-span-2 xl:col-span-1 xl:flex-col">
               <button data-action="pause" class="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-white px-3 py-3 text-sm font-extrabold text-rose-700 shadow-card transition hover:bg-rose-50"><span>Ⅱ</span> <span class="hidden sm:inline">Tạm dừng</span></button>
               <button data-action="new" class="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-white px-3 py-3 text-sm font-extrabold text-rose-700 shadow-card transition hover:bg-rose-50"><span>↻</span> <span class="hidden sm:inline">Đổi màn</span></button>
               <button data-action="history" class="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-white px-3 py-3 text-sm font-extrabold text-rose-700 shadow-card transition hover:bg-rose-50"><span>♧</span> <span class="hidden sm:inline">Lịch sử</span></button>
