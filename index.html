@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#fff1f5" />
+  <title>Love Letters — Word Search</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Nunito', 'ui-rounded', 'system-ui', 'sans-serif'],
+            display: ['Playfair Display', 'Georgia', 'serif']
+          },
+          boxShadow: {
+            soft: '0 24px 70px rgba(190, 24, 93, .12)',
+            card: '0 10px 30px rgba(190, 24, 93, .08)'
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root { --p1: #ec4899; --p2: #8b5cf6; }
+    * { -webkit-tap-highlight-color: transparent; }
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 8% 10%, rgba(251, 207, 232, .75), transparent 24rem),
+        radial-gradient(circle at 92% 88%, rgba(254, 205, 211, .72), transparent 26rem),
+        linear-gradient(145deg, #fff7fa 0%, #fff1f5 52%, #fdf2f8 100%);
+    }
+    .noise::before {
+      content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .035; z-index: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.7'/%3E%3C/svg%3E");
+    }
+    .glass { background: rgba(255,255,255,.74); backdrop-filter: blur(18px); }
+    .screen { animation: fadeIn .35s ease both; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+    .choice-input:checked + label { border-color: #ec4899; background: #fff1f5; box-shadow: 0 0 0 3px rgba(236,72,153,.12); }
+    .color-choice { width: 2.25rem; height: 2.25rem; border-radius: 999px; border: 3px solid white; box-shadow: 0 0 0 1px #fbcfe8; transition: .18s; }
+    .color-choice.active { transform: scale(1.12); box-shadow: 0 0 0 3px #fff, 0 0 0 5px currentColor; }
+    #letterGrid { touch-action: none; user-select: none; -webkit-user-select: none; grid-template-columns: repeat(15, minmax(0, 1fr)); }
+    .letter-cell {
+      aspect-ratio: 1; display: grid; place-items: center; border-radius: clamp(.28rem, 1vw, .65rem);
+      font-size: clamp(.54rem, 1.75vw, .92rem); font-weight: 800; color: #6b2948;
+      background: rgba(255,255,255,.74); border: 1px solid rgba(251,207,232,.8);
+      transition: transform .12s, background .15s, color .15s, box-shadow .15s;
+    }
+    .letter-cell.preview { transform: scale(.91); color: white; box-shadow: inset 0 0 0 2px rgba(255,255,255,.5); }
+    .letter-cell.found { color: white; border-color: transparent; text-shadow: 0 1px 2px rgba(80,0,30,.22); }
+    .board-paused #letterGrid { filter: blur(8px); opacity: .33; pointer-events: none; }
+    .modal-backdrop { background: rgba(72, 20, 45, .38); backdrop-filter: blur(8px); }
+    .heart { position: fixed; bottom: -40px; z-index: 80; pointer-events: none; animation: fly var(--duration) ease-in forwards; color: var(--color); font-size: var(--size); }
+    @keyframes fly { 0% { transform: translateY(0) rotate(0deg) scale(.5); opacity: 0 } 12% { opacity: .9 } 100% { transform: translateY(-115vh) rotate(var(--rotate)) scale(1.25); opacity: 0 } }
+    .toast { animation: toastIn .25s ease both, toastOut .3s ease 2.4s forwards; }
+    @keyframes toastIn { from { opacity:0; transform:translate(-50%, 12px) } to { opacity:1; transform:translate(-50%,0) } }
+    @keyframes toastOut { to { opacity:0; transform:translate(-50%,-8px) } }
+    @media (max-width: 380px) { .letter-cell { font-size: .5rem; border-radius: .2rem; } }
+  </style>
+</head>
+<body class="noise font-sans text-rose-950 antialiased">
+  <div aria-hidden="true" class="fixed left-5 top-5 text-2xl text-pink-200">♡</div>
+  <div aria-hidden="true" class="fixed bottom-8 right-7 text-4xl text-rose-200">♡</div>
+
+  <main class="relative z-10 min-h-screen">
+    <!-- Welcome screen -->
+    <section id="welcomeScreen" class="screen flex min-h-screen items-center justify-center p-4 sm:p-7">
+      <div class="glass w-full max-w-3xl overflow-hidden rounded-[2rem] border border-white shadow-soft">
+        <div class="grid md:grid-cols-[.88fr_1.12fr]">
+          <div class="relative hidden overflow-hidden bg-gradient-to-br from-rose-400 via-pink-500 to-fuchsia-500 p-9 text-white md:flex md:flex-col md:justify-between">
+            <div class="absolute -right-14 -top-14 h-48 w-48 rounded-full border-[30px] border-white/10"></div>
+            <div class="absolute -bottom-20 -left-20 h-64 w-64 rounded-full bg-white/10"></div>
+            <span class="relative text-3xl">♡</span>
+            <div class="relative">
+              <p class="mb-3 text-xs font-extrabold uppercase tracking-[.3em] text-pink-100">A little game for two</p>
+              <h1 class="font-display text-5xl leading-tight">Love<br/>Letters</h1>
+              <p class="mt-5 max-w-xs text-sm leading-relaxed text-pink-50">Tìm những lời yêu thương được giấu giữa muôn vàn con chữ.</p>
+            </div>
+            <p class="relative text-xs text-pink-100/80">Word Search · made with love</p>
+          </div>
+
+          <div class="p-6 sm:p-9">
+            <div class="mb-7 text-center md:text-left">
+              <p class="mb-1 text-xs font-extrabold uppercase tracking-[.25em] text-pink-500">Chào mừng bạn</p>
+              <h2 class="font-display text-3xl text-rose-950">Bắt đầu cuộc hẹn</h2>
+              <p class="mt-2 text-sm text-rose-500">Chọn người đồng hành và màu sắc của riêng bạn.</p>
+            </div>
+
+            <form id="setupForm" novalidate>
+              <fieldset>
+                <legend class="mb-3 text-sm font-extrabold text-rose-800">Chế độ chơi</legend>
+                <div class="grid grid-cols-2 gap-3">
+                  <div><input class="choice-input sr-only" type="radio" name="mode" id="mode1" value="1" checked><label for="mode1" class="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-rose-100 bg-white px-3 py-3 text-sm font-bold transition"><span>♥</span> Chơi 1 mình</label></div>
+                  <div><input class="choice-input sr-only" type="radio" name="mode" id="mode2" value="2"><label for="mode2" class="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-rose-100 bg-white px-3 py-3 text-sm font-bold transition"><span>♥♥</span> Chơi 2 người</label></div>
+                </div>
+              </fieldset>
+
+              <div class="mt-6 space-y-5">
+                <div>
+                  <label for="setSelect" class="mb-2 block text-sm font-extrabold text-rose-800">Bộ từ muốn chơi</label>
+                  <select id="setSelect" disabled class="w-full rounded-2xl border-2 border-rose-100 bg-white/80 px-4 py-3 text-sm font-bold text-rose-700 outline-none transition focus:border-pink-400 focus:ring-4 focus:ring-pink-100">
+                    <option>Đang tải 273 bộ từ...</option>
+                  </select>
+                  <p id="databaseStatus" class="mt-2 text-xs font-semibold text-rose-400">Đang đọc database...</p>
+                </div>
+                <div>
+                  <label for="name1" class="mb-2 block text-sm font-extrabold text-rose-800">Tên người chơi 1</label>
+                  <input id="name1" maxlength="18" placeholder="Ví dụ: Mèo Con" class="w-full rounded-2xl border-2 border-rose-100 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-rose-300 focus:border-pink-400 focus:ring-4 focus:ring-pink-100" />
+                  <div class="mt-3 flex items-center gap-3"><span class="text-xs font-bold text-rose-400">Màu:</span><div id="colors1" class="flex flex-wrap gap-2" aria-label="Chọn màu người chơi 1"></div></div>
+                </div>
+                <div id="player2Fields" class="hidden">
+                  <label for="name2" class="mb-2 block text-sm font-extrabold text-rose-800">Tên người chơi 2</label>
+                  <input id="name2" maxlength="18" placeholder="Ví dụ: Gấu Nhỏ" class="w-full rounded-2xl border-2 border-rose-100 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-rose-300 focus:border-pink-400 focus:ring-4 focus:ring-pink-100" />
+                  <div class="mt-3 flex items-center gap-3"><span class="text-xs font-bold text-rose-400">Màu:</span><div id="colors2" class="flex flex-wrap gap-2" aria-label="Chọn màu người chơi 2"></div></div>
+                </div>
+              </div>
+              <p id="formError" class="mt-4 hidden rounded-xl bg-rose-50 px-3 py-2 text-center text-sm font-bold text-rose-600" role="alert"></p>
+              <button id="startButton" type="submit" disabled class="mt-7 w-full rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 px-5 py-3.5 font-extrabold text-white shadow-lg shadow-pink-200 transition hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-pink-200 disabled:cursor-not-allowed disabled:opacity-50">Bắt đầu chơi <span class="ml-1">→</span></button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Game screen -->
+    <section id="gameScreen" class="screen hidden min-h-screen px-3 py-4 sm:px-6 sm:py-6">
+      <div class="mx-auto max-w-7xl">
+        <header class="mb-5 flex flex-col items-center gap-4 lg:grid lg:grid-cols-[1fr_auto_1fr]">
+          <div class="order-2 flex flex-wrap justify-center gap-2 lg:order-1 lg:justify-start" id="scoreboard"></div>
+          <div class="order-1 text-center lg:order-2">
+            <p class="text-[10px] font-extrabold uppercase tracking-[.38em] text-pink-400">Word search for lovers</p>
+            <h1 class="font-display text-3xl text-rose-950 sm:text-4xl">Love Letters <span class="text-pink-400">♡</span></h1>
+          </div>
+          <div class="order-3 flex items-center justify-end gap-2">
+            <div class="rounded-2xl border border-white bg-white/80 px-4 py-2 text-center shadow-card">
+              <span class="block text-[9px] font-extrabold uppercase tracking-widest text-rose-400">Thời gian</span>
+              <span id="timer" class="font-mono text-lg font-bold tabular-nums text-rose-900">00:00</span>
+            </div>
+          </div>
+        </header>
+
+        <div id="gameArea" class="glass relative rounded-[2rem] border border-white p-3 shadow-soft sm:p-5">
+          <div id="pauseOverlay" class="absolute inset-0 z-30 hidden items-center justify-center rounded-[2rem] bg-white/35 backdrop-blur-sm">
+            <div class="rounded-3xl bg-white px-9 py-7 text-center shadow-soft">
+              <div class="text-4xl">☕</div><h3 class="mt-2 font-display text-2xl">Nghỉ một chút nhé</h3><p class="mt-1 text-sm text-rose-400">Đồng hồ đang tạm dừng</p>
+              <button data-action="resume" class="mt-5 rounded-xl bg-rose-500 px-5 py-2.5 text-sm font-extrabold text-white">Tiếp tục chơi</button>
+            </div>
+          </div>
+          <div class="grid items-start gap-4 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[250px_minmax(0,1fr)_170px]">
+            <aside class="rounded-3xl bg-gradient-to-b from-rose-50 to-pink-50/70 p-4 sm:p-5">
+              <div class="mb-4 flex items-center justify-between gap-2">
+                <div><p class="text-[9px] font-extrabold uppercase tracking-[.22em] text-pink-400">Hidden words</p><h2 id="setTitle" class="font-display text-xl">Bộ từ</h2></div>
+                <span id="progress" class="rounded-full bg-white px-2.5 py-1 text-xs font-extrabold text-pink-500 shadow-sm">0/10</span>
+              </div>
+              <ul id="wordList" class="grid max-h-[34rem] grid-cols-2 gap-2 overflow-y-auto pr-1 lg:grid-cols-1"></ul>
+            </aside>
+
+            <div class="mx-auto w-full max-w-[680px]">
+              <div class="mb-3 flex items-center justify-between px-1">
+                <p id="turnLabel" class="text-sm font-extrabold text-rose-700"></p>
+                <p class="text-[10px] font-bold uppercase tracking-wider text-rose-300">Kéo theo đường thẳng</p>
+              </div>
+              <div id="letterGrid" class="grid gap-0.5 rounded-[1.5rem] bg-rose-100/70 p-2 shadow-inner sm:gap-1 sm:p-3" role="grid" aria-label="Bảng tìm chữ 22 hàng, 15 cột"></div>
+            </div>
+
+            <aside class="flex flex-row justify-center gap-2 lg:col-span-2 xl:col-span-1 xl:flex-col">
+              <button data-action="pause" class="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-white px-3 py-3 text-sm font-extrabold text-rose-700 shadow-card transition hover:bg-rose-50"><span>Ⅱ</span> <span class="hidden sm:inline">Tạm dừng</span></button>
+              <button data-action="new" class="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-white px-3 py-3 text-sm font-extrabold text-rose-700 shadow-card transition hover:bg-rose-50"><span>↻</span> <span class="hidden sm:inline">Đổi màn</span></button>
+              <button data-action="history" class="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-white px-3 py-3 text-sm font-extrabold text-rose-700 shadow-card transition hover:bg-rose-50"><span>♧</span> <span class="hidden sm:inline">Lịch sử</span></button>
+            </aside>
+          </div>
+        </div>
+        <p class="mt-4 text-center text-xs font-semibold text-rose-300">Mỗi từ là một lời nhắn nhỏ dành cho người thương · ♡</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Generic modal -->
+  <div id="modal" class="modal-backdrop fixed inset-0 z-50 hidden items-center justify-center p-4" role="dialog" aria-modal="true">
+    <div id="modalContent" class="max-h-[88vh] w-full max-w-lg overflow-auto rounded-[2rem] bg-white p-6 shadow-soft sm:p-8"></div>
+  </div>
+  <div id="toastHost" aria-live="polite"></div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const ROWS = 22;
+      const COLS = 15;
+      const COLORS = ['#ec4899', '#8b5cf6', '#0ea5e9', '#f97316', '#14b8a6', '#e11d48'];
+      let DATABASE = [];
+      const DIRECTIONS = [
+        [0,1], [0,-1], [1,0], [-1,0], [1,1], [-1,-1], [1,-1], [-1,1]
+      ];
+
+      const $ = (s, root = document) => root.querySelector(s);
+      const $$ = (s, root = document) => [...root.querySelectorAll(s)];
+      const state = {
+        mode: 1, players: [], active: 0, grid: [], placed: [], found: new Map(), owners: [],
+        selecting: false, startCell: null, preview: [], elapsed: 0, timerId: null,
+        startedAt: null, paused: false, completed: false, currentSet: null, requestedSetId: 'random'
+      };
+
+      function renderColorPickers() {
+        [1, 2].forEach((playerNo) => {
+          const wrap = $('#colors' + playerNo);
+          wrap.innerHTML = COLORS.map((color, i) => `<button type="button" class="color-choice ${i === playerNo - 1 ? 'active' : ''}" data-player="${playerNo}" data-color="${color}" style="background:${color};color:${color}" aria-label="Chọn màu ${color}"></button>`).join('');
+        });
+      }
+
+      function setupWelcome() {
+        renderColorPickers();
+        $$('input[name="mode"]').forEach(input => input.addEventListener('change', () => {
+          $('#player2Fields').classList.toggle('hidden', input.value !== '2' || !input.checked);
+        }));
+        document.addEventListener('click', e => {
+          const colorBtn = e.target.closest('.color-choice');
+          if (colorBtn) {
+            const parent = colorBtn.parentElement;
+            $$('.color-choice', parent).forEach(b => b.classList.remove('active'));
+            colorBtn.classList.add('active');
+          }
+          const action = e.target.closest('[data-action]')?.dataset.action;
+          if (action) handleAction(action);
+        });
+        $('#setupForm').addEventListener('submit', startFromForm);
+        loadDatabase();
+      }
+
+      async function loadDatabase() {
+        const status = $('#databaseStatus');
+        try {
+          const response = await fetch('./database.json', { cache: 'no-store' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          if (!Array.isArray(data) || !data.length) throw new Error('Database rỗng');
+          DATABASE = data.filter(set => Number.isInteger(Number(set.id)) && set.title && Array.isArray(set.words) && set.words.length);
+          if (!DATABASE.length) throw new Error('Database không đúng định dạng');
+          $('#setSelect').innerHTML = `<option value="random">♡ Chọn ngẫu nhiên</option>${DATABASE.map(set => `<option value="${Number(set.id)}">#${String(set.id).padStart(3, '0')} · ${escapeHtml(set.title)} (${set.words.length} từ)</option>`).join('')}`;
+          $('#setSelect').disabled = false;
+          $('#startButton').disabled = false;
+          status.textContent = `Đã sẵn sàng ${DATABASE.length} bộ từ · mỗi ván giữ nguyên một bộ`;
+        } catch (error) {
+          status.innerHTML = 'Không tải được database. Hãy mở trang qua GitHub Pages hoặc một web server cục bộ.';
+          status.classList.replace('text-rose-400', 'text-rose-600');
+          console.error(error);
+        }
+      }
+
+      function startFromForm(e) {
+        e.preventDefault();
+        const mode = Number($('input[name="mode"]:checked').value);
+        const name1 = $('#name1').value.trim();
+        const name2 = $('#name2').value.trim();
+        const color1 = $('#colors1 .active').dataset.color;
+        const color2 = $('#colors2 .active').dataset.color;
+        const error = $('#formError');
+        if (!name1 || (mode === 2 && !name2)) return showFormError('Hãy nhập đủ tên người chơi nhé!');
+        if (mode === 2 && name1.toLocaleLowerCase('vi') === name2.toLocaleLowerCase('vi')) return showFormError('Hai người hãy chọn tên khác nhau nhé!');
+        if (mode === 2 && color1 === color2) return showFormError('Mỗi người cần một màu đại diện riêng biệt!');
+        error.classList.add('hidden');
+        state.mode = mode;
+        state.requestedSetId = $('#setSelect').value;
+        state.players = [{ name: name1, color: color1, score: 0 }];
+        if (mode === 2) state.players.push({ name: name2, color: color2, score: 0 });
+        document.documentElement.style.setProperty('--p1', color1);
+        document.documentElement.style.setProperty('--p2', color2);
+        $('#welcomeScreen').classList.add('hidden');
+        $('#gameScreen').classList.remove('hidden');
+        newPuzzle();
+      }
+
+      function showFormError(text) {
+        const el = $('#formError'); el.textContent = text; el.classList.remove('hidden');
+      }
+
+      function shuffle(array) {
+        const a = [...array];
+        for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+        return a;
+      }
+
+      function createPuzzle() {
+        const source = state.currentSet.words.map(label => ({ label: String(label), word: normalizeWord(label) }));
+        const words = source.filter(item => item.word && item.word.length <= Math.max(ROWS, COLS)).sort((a,b) => b.word.length - a.word.length);
+        if (words.length !== source.length) throw new Error('Bộ từ có mục không hợp lệ hoặc quá dài.');
+        for (let restart = 0; restart < 240; restart++) {
+          const grid = Array.from({length: ROWS}, () => Array(COLS).fill(''));
+          const placed = [];
+          const directionOrder = shuffle(DIRECTIONS);
+          let success = true;
+          for (let wi = 0; wi < words.length; wi++) {
+            const item = words[wi];
+            const primary = directionOrder[wi % 8];
+            const candidates = wi < 8 ? [primary] : shuffle(DIRECTIONS);
+            const placements = [];
+            for (const [dr, dc] of candidates) {
+              for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+                const er = r + dr * (item.word.length - 1), ec = c + dc * (item.word.length - 1);
+                if (er < 0 || er >= ROWS || ec < 0 || ec >= COLS) continue;
+                let fits = true, overlaps = 0;
+                for (let k = 0; k < item.word.length; k++) {
+                  const old = grid[r + dr*k][c + dc*k];
+                  if (old && old !== item.word[k]) { fits = false; break; }
+                  if (old === item.word[k]) overlaps++;
+                }
+                if (fits) placements.push({ ...item, start:[r,c], end:[er,ec], dr, dc, overlaps });
+              }
+            }
+            const bestOverlap = placements.length ? Math.max(...placements.map(p => p.overlaps)) : -1;
+            const best = shuffle(placements.filter(p => p.overlaps >= Math.max(0, bestOverlap - 1)));
+            const placement = best[0] || null;
+            if (!placement) { success = false; break; }
+            for (let k = 0; k < item.word.length; k++) grid[placement.start[0] + placement.dr*k][placement.start[1] + placement.dc*k] = item.word[k];
+            placed.push(placement);
+          }
+          if (success) {
+            const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (!grid[r][c]) grid[r][c] = alphabet[Math.floor(Math.random()*alphabet.length)];
+            return { grid, placed };
+          }
+        }
+        throw new Error('Không thể tạo bảng chữ. Vui lòng thử lại.');
+      }
+
+      function newPuzzle() {
+        stopTimer();
+        const chosen = state.requestedSetId === 'random'
+          ? DATABASE[Math.floor(Math.random() * DATABASE.length)]
+          : DATABASE.find(set => String(set.id) === String(state.requestedSetId));
+        state.currentSet = chosen || DATABASE[0];
+        const puzzle = createPuzzle();
+        Object.assign(state, {
+          grid: puzzle.grid, placed: puzzle.placed, found: new Map(),
+          owners: Array.from({length: ROWS}, () => Array.from({length: COLS}, () => [])),
+          active: 0, selecting: false, startCell: null, preview: [], elapsed: 0,
+          startedAt: new Date(), paused: false, completed: false
+        });
+        state.players.forEach(p => p.score = 0);
+        $('#timer').textContent = '00:00';
+        $('#gameArea').classList.remove('board-paused');
+        $('#pauseOverlay').classList.replace('flex', 'hidden');
+        renderGame(); startTimer();
+      }
+
+      function renderGame() {
+        $('#setTitle').textContent = `#${String(state.currentSet.id).padStart(3, '0')} · ${state.currentSet.title}`;
+        $('#letterGrid').innerHTML = state.grid.flatMap((row, r) => row.map((letter, c) => `<div class="letter-cell" data-r="${r}" data-c="${c}" role="gridcell" aria-label="${letter}, hàng ${r+1}, cột ${c+1}">${letter}</div>`)).join('');
+        $('#wordList').innerHTML = state.placed.map((p, i) => `<li data-word-index="${i}" class="flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 text-sm font-bold text-rose-700 transition"><span class="word-dot h-2 w-2 rounded-full bg-rose-200"></span><span>${p.label}</span></li>`).join('');
+        bindGridEvents(); updateStatus();
+      }
+
+      function bindGridEvents() {
+        const grid = $('#letterGrid');
+        grid.addEventListener('pointerdown', e => {
+          if (state.paused || state.completed) return;
+          const cell = e.target.closest('.letter-cell'); if (!cell) return;
+          e.preventDefault(); grid.setPointerCapture?.(e.pointerId);
+          state.selecting = true; state.startCell = [Number(cell.dataset.r), Number(cell.dataset.c)];
+          updatePreview(state.startCell);
+        });
+        grid.addEventListener('pointermove', e => {
+          if (!state.selecting) return;
+          const cell = document.elementFromPoint(e.clientX, e.clientY)?.closest('.letter-cell');
+          if (cell && grid.contains(cell)) updatePreview([Number(cell.dataset.r), Number(cell.dataset.c)]);
+        });
+        grid.addEventListener('pointerup', finishSelection);
+        grid.addEventListener('pointercancel', cancelSelection);
+        window.addEventListener('pointerup', e => { if (state.selecting && !grid.contains(e.target)) finishSelection(); }, { once: false });
+      }
+
+      function lineCells(start, end) {
+        const [r1,c1] = start, [r2,c2] = end;
+        const rd = r2-r1, cd = c2-c1;
+        if (!(rd === 0 || cd === 0 || Math.abs(rd) === Math.abs(cd))) return [];
+        const dr = Math.sign(rd), dc = Math.sign(cd), len = Math.max(Math.abs(rd), Math.abs(cd));
+        return Array.from({length: len+1}, (_,i) => [r1+dr*i, c1+dc*i]);
+      }
+
+      function updatePreview(end) {
+        clearPreview();
+        state.preview = lineCells(state.startCell, end);
+        const color = state.players[state.active].color;
+        state.preview.forEach(([r,c]) => {
+          const cell = getCell(r,c); cell.classList.add('preview'); cell.style.background = color;
+        });
+      }
+
+      function clearPreview() {
+        state.preview.forEach(([r,c]) => { const el = getCell(r,c); el.classList.remove('preview'); paintCell(r,c); });
+        state.preview = [];
+      }
+
+      function finishSelection() {
+        if (!state.selecting) return;
+        state.selecting = false;
+        const selected = [...state.preview];
+        const text = selected.map(([r,c]) => state.grid[r][c]).join('');
+        const reverse = [...text].reverse().join('');
+        const index = state.placed.findIndex((p,i) => !state.found.has(i) && (p.word === text || p.word === reverse));
+        clearPreview();
+        if (index >= 0) foundWord(index, selected);
+        else {
+          showToast(selected.length > 1 ? 'Chưa đúng rồi, thử lại nhé ♡' : 'Kéo qua các chữ theo một đường thẳng');
+          nextTurn();
+        }
+        state.startCell = null;
+      }
+
+      function cancelSelection() { if (!state.selecting) return; state.selecting = false; clearPreview(); state.startCell = null; }
+
+      function foundWord(index, cells) {
+        const owner = state.active;
+        state.found.set(index, owner);
+        state.players[owner].score++;
+        cells.forEach(([r,c]) => { if (!state.owners[r][c].includes(owner)) state.owners[r][c].push(owner); paintCell(r,c); });
+        showToast(`${state.players[owner].name} tìm thấy “${state.placed[index].label}” ♥`, state.players[owner].color);
+        updateStatus();
+        if (state.found.size === state.placed.length) finishGame(); else nextTurn();
+      }
+
+      function paintCell(r,c) {
+        const cell = getCell(r,c), owners = state.owners[r][c];
+        if (!owners.length) { cell.classList.remove('found'); cell.style.background = ''; return; }
+        cell.classList.add('found');
+        const colors = owners.map(i => state.players[i].color);
+        cell.style.background = colors.length === 1 ? colors[0] : `linear-gradient(135deg, ${colors[0]} 0 50%, ${colors[1]} 50% 100%)`;
+      }
+
+      function getCell(r,c) { return $(`.letter-cell[data-r="${r}"][data-c="${c}"]`); }
+
+      function nextTurn() {
+        if (state.mode === 2) state.active = (state.active + 1) % state.players.length;
+        updateStatus();
+      }
+
+      function updateStatus() {
+        $('#progress').textContent = `${state.found.size}/${state.placed.length}`;
+        $('#turnLabel').innerHTML = state.mode === 2
+          ? `Lượt của <span style="color:${state.players[state.active].color}">${escapeHtml(state.players[state.active].name)} ●</span>`
+          : `Cố lên, <span style="color:${state.players[0].color}">${escapeHtml(state.players[0].name)}!</span>`;
+        $('#scoreboard').innerHTML = state.players.map((p,i) => `<div class="rounded-2xl border bg-white/80 px-3 py-2 shadow-card ${state.mode === 2 && i === state.active ? 'ring-2 ring-offset-1' : ''}" style="border-color:${p.color}55;--tw-ring-color:${p.color}"><span class="mr-1.5 inline-block h-2.5 w-2.5 rounded-full" style="background:${p.color}"></span><span class="text-xs font-extrabold">${escapeHtml(p.name)}</span><span class="ml-2 rounded-full px-2 py-0.5 text-xs font-black text-white" style="background:${p.color}">${p.score}</span></div>`).join('');
+        state.placed.forEach((p,i) => {
+          const li = $(`[data-word-index="${i}"]`); if (!li) return;
+          const owner = state.found.get(i);
+          li.classList.toggle('line-through', owner !== undefined);
+          li.classList.toggle('opacity-60', owner !== undefined);
+          if (owner !== undefined) { li.style.color = state.players[owner].color; $('.word-dot', li).style.background = state.players[owner].color; }
+        });
+      }
+
+      function startTimer() {
+        stopTimer();
+        state.timerId = setInterval(() => { if (!state.paused && !state.completed) { state.elapsed++; $('#timer').textContent = formatTime(state.elapsed); } }, 1000);
+      }
+      function stopTimer() { if (state.timerId) clearInterval(state.timerId); state.timerId = null; }
+      function formatTime(seconds) { const m = Math.floor(seconds/60), s = seconds%60; return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
+
+      function togglePause(forceResume = false) {
+        if (state.completed) return;
+        state.paused = forceResume ? false : !state.paused;
+        $('#gameArea').classList.toggle('board-paused', state.paused);
+        $('#pauseOverlay').classList.toggle('hidden', !state.paused);
+        $('#pauseOverlay').classList.toggle('flex', state.paused);
+        if (state.paused) cancelSelection();
+      }
+
+      function finishGame() {
+        state.completed = true; stopTimer();
+        const max = Math.max(...state.players.map(p => p.score));
+        const winners = state.players.filter(p => p.score === max);
+        const title = state.mode === 1 ? `Tuyệt vời, ${state.players[0].name}!` : winners.length > 1 ? 'Một trận hòa ngọt ngào!' : `${winners[0].name} chiến thắng!`;
+        saveHistory(winners.map(w => w.name).join(' & '));
+        launchHearts();
+        openModal(`
+          <div class="text-center">
+            <div class="mx-auto grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-rose-100 to-pink-200 text-4xl">💖</div>
+            <p class="mt-5 text-xs font-extrabold uppercase tracking-[.25em] text-pink-400">Hoàn thành</p>
+            <h2 class="mt-1 font-display text-3xl text-rose-950">${escapeHtml(title)}</h2>
+            <p class="mt-3 text-rose-500">Bạn đã tìm trọn vẹn ${state.placed.length} từ của bộ <strong>#${state.currentSet.id} · ${escapeHtml(state.currentSet.title)}</strong> trong <strong>${formatTime(state.elapsed)}</strong>.</p>
+            <div class="mt-5 flex justify-center gap-3">${state.players.map(p => `<div class="rounded-2xl bg-rose-50 px-4 py-3"><span class="text-sm font-bold" style="color:${p.color}">${escapeHtml(p.name)}</span><strong class="ml-2 text-lg">${p.score}</strong></div>`).join('')}</div>
+            <div class="mt-7 grid grid-cols-2 gap-3">
+              <button data-action="close-modal-new" class="rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-3 text-sm font-extrabold text-white">Chơi màn mới</button>
+              <button data-action="back-welcome" class="rounded-2xl border-2 border-rose-100 px-4 py-3 text-sm font-extrabold text-rose-600">Đổi người chơi</button>
+            </div>
+          </div>`);
+      }
+
+      function saveHistory(winner) {
+        const history = getHistory();
+        history.unshift({
+          players: state.players.map(p => ({name:p.name, score:p.score})), mode: state.mode,
+          seconds: state.elapsed, date: new Date().toISOString(), winner,
+          setId: state.currentSet.id, setTitle: state.currentSet.title
+        });
+        try { localStorage.setItem('loveLettersHistory', JSON.stringify(history.slice(0, 50))); } catch (_) {}
+      }
+      function getHistory() { try { return JSON.parse(localStorage.getItem('loveLettersHistory') || '[]'); } catch (_) { return []; } }
+
+      function showHistory() {
+        const wasRunning = !state.paused && !state.completed; if (wasRunning) togglePause();
+        const history = getHistory();
+        const rows = history.map((h,i) => `<tr class="border-t border-rose-50"><td class="py-3 pr-3 text-xs text-rose-400">${i+1}</td><td class="py-3 pr-3"><strong class="block text-sm">${h.players.map(p=>escapeHtml(p.name)).join(' & ')}</strong><span class="text-xs text-rose-400">${h.mode === 1 ? '1 người' : '2 người'} · ${h.players.map(p=>p.score).join('–')} ${h.setId ? `· #${h.setId} ${escapeHtml(h.setTitle || '')}` : ''}</span></td><td class="py-3 pr-3 text-sm font-bold">${formatTime(h.seconds)}</td><td class="py-3 text-right text-xs text-rose-400">${formatDate(h.date)}</td></tr>`).join('');
+        openModal(`
+          <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-extrabold uppercase tracking-[.22em] text-pink-400">Our memories</p><h2 class="font-display text-3xl">Lịch sử ván chơi</h2></div><button data-action="close-modal${wasRunning ? '-resume' : ''}" class="grid h-9 w-9 place-items-center rounded-full bg-rose-50 font-bold text-rose-500" aria-label="Đóng">×</button></div>
+          <div class="mt-5 overflow-x-auto">${history.length ? `<table class="w-full min-w-[430px]"><thead><tr class="text-left text-[10px] uppercase tracking-wider text-rose-300"><th>#</th><th>Người chơi</th><th>Thời gian</th><th class="text-right">Ngày chơi</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="rounded-2xl bg-rose-50 py-10 text-center"><div class="text-3xl">♡</div><p class="mt-2 text-sm font-bold text-rose-500">Chưa có kỷ niệm nào được lưu.</p></div>`}</div>
+          ${history.length ? `<button data-action="clear-history" class="mt-5 text-xs font-bold text-rose-400 underline underline-offset-4">Xóa lịch sử</button>` : ''}`);
+      }
+
+      function showNewGameMenu() {
+        const wasRunning = !state.paused && !state.completed; if (wasRunning) togglePause();
+        openModal(`<div class="text-center"><div class="text-4xl">💌</div><h2 class="mt-3 font-display text-3xl">Mình chơi tiếp nhé?</h2><p class="mt-2 text-sm text-rose-400">Ván hiện tại sẽ không được lưu nếu chưa hoàn thành.</p><div class="mt-6 grid gap-3"><button data-action="close-modal-new" class="rounded-2xl bg-rose-500 px-4 py-3 font-extrabold text-white">Tạo bảng chữ mới</button><button data-action="back-welcome" class="rounded-2xl border-2 border-rose-100 px-4 py-3 font-extrabold text-rose-600">Đổi tên / chế độ chơi</button><button data-action="close-modal${wasRunning ? '-resume' : ''}" class="px-4 py-2 text-sm font-bold text-rose-400">Tiếp tục ván này</button></div></div>`);
+      }
+
+      function handleAction(action) {
+        if (action === 'pause') togglePause();
+        else if (action === 'resume') togglePause(true);
+        else if (action === 'new') showNewGameMenu();
+        else if (action === 'history') showHistory();
+        else if (action === 'close-modal') closeModal();
+        else if (action === 'close-modal-resume') { closeModal(); togglePause(true); }
+        else if (action === 'close-modal-new') { closeModal(); newPuzzle(); }
+        else if (action === 'back-welcome') { closeModal(); stopTimer(); $('#gameScreen').classList.add('hidden'); $('#welcomeScreen').classList.remove('hidden'); }
+        else if (action === 'clear-history') { try { localStorage.removeItem('loveLettersHistory'); } catch (_) {} closeModal(); showHistory(); }
+      }
+
+      function openModal(html) { $('#modalContent').innerHTML = html; $('#modal').classList.remove('hidden'); $('#modal').classList.add('flex'); }
+      function closeModal() { $('#modal').classList.add('hidden'); $('#modal').classList.remove('flex'); }
+      function formatDate(iso) { return new Intl.DateTimeFormat('vi-VN', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(iso)); }
+      function normalizeWord(value) { return String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z]/g, ''); }
+      function escapeHtml(value) { const d = document.createElement('div'); d.textContent = String(value); return d.innerHTML; }
+
+      function showToast(message, color = '#ec4899') {
+        const el = document.createElement('div');
+        el.className = 'toast fixed left-1/2 top-5 z-[100] max-w-[90vw] rounded-full bg-white px-5 py-3 text-center text-sm font-extrabold shadow-soft';
+        el.style.color = color; el.textContent = message; $('#toastHost').appendChild(el);
+        setTimeout(() => el.remove(), 2800);
+      }
+
+      function launchHearts() {
+        const symbols = ['♥','♡','✦','●'];
+        for (let i = 0; i < 55; i++) setTimeout(() => {
+          const h = document.createElement('span'); h.className = 'heart'; h.textContent = symbols[Math.floor(Math.random()*symbols.length)];
+          h.style.left = Math.random()*100 + 'vw'; h.style.setProperty('--duration', (3.2+Math.random()*2.5)+'s');
+          h.style.setProperty('--rotate', (-160+Math.random()*320)+'deg'); h.style.setProperty('--size', (12+Math.random()*24)+'px');
+          h.style.setProperty('--color', COLORS[Math.floor(Math.random()*COLORS.length)]); document.body.appendChild(h); setTimeout(()=>h.remove(), 6000);
+        }, i*45);
+      }
+
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && !$('#modal').classList.contains('hidden')) closeModal();
+        else if (e.code === 'Space' && !$('#gameScreen').classList.contains('hidden') && $('#modal').classList.contains('hidden')) { e.preventDefault(); togglePause(); }
+      });
+
+      setupWelcome();
+    })();
+  </script>
+</body>
+</html>
