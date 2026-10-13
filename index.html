@@ -170,12 +170,12 @@
                 </div>
                 <div>
                   <label for="name1" class="mb-2 block text-sm font-extrabold text-rose-800">Tên người chơi 1</label>
-                  <input id="name1" maxlength="18" placeholder="Ví dụ: Mèo Con" class="w-full rounded-2xl border-2 border-rose-100 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-rose-300 focus:border-pink-400 focus:ring-4 focus:ring-pink-100" />
+                  <input id="name1" maxlength="50" placeholder="Ví dụ: Cún Con" class="w-full rounded-2xl border-2 border-rose-100 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-rose-300 focus:border-pink-400 focus:ring-4 focus:ring-pink-100" />
                   <div class="mt-3 flex items-center gap-3"><span class="text-xs font-bold text-rose-400">Màu:</span><div id="colors1" class="flex flex-wrap gap-2" aria-label="Chọn màu người chơi 1"></div></div>
                 </div>
                 <div id="player2Fields" class="hidden">
                   <label for="name2" class="mb-2 block text-sm font-extrabold text-rose-800">Tên người chơi 2</label>
-                  <input id="name2" maxlength="18" placeholder="Ví dụ: Gấu Nhỏ" class="w-full rounded-2xl border-2 border-rose-100 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-rose-300 focus:border-pink-400 focus:ring-4 focus:ring-pink-100" />
+                  <input id="name2" maxlength="50" placeholder="Ví dụ: Gấu Nhỏ" class="w-full rounded-2xl border-2 border-rose-100 bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-rose-300 focus:border-pink-400 focus:ring-4 focus:ring-pink-100" />
                   <div class="mt-3 flex items-center gap-3"><span class="text-xs font-bold text-rose-400">Màu:</span><div id="colors2" class="flex flex-wrap gap-2" aria-label="Chọn màu người chơi 2"></div></div>
                 </div>
                 <div id="onlineFields" class="hidden rounded-2xl border border-pink-100 bg-pink-50/70 p-4">
@@ -906,7 +906,7 @@
           : state.mode === 2
             ? `Lượt của <span style="color:${state.players[state.active].color}">${escapeHtml(state.players[state.active].name)} ●</span>`
             : `Cố lên, <span style="color:${state.players[0].color}">${escapeHtml(state.players[0].name)}!</span>`;
-        $('#scoreboard').innerHTML = state.players.map((p,i) => `<div class="rounded-2xl border bg-white/80 px-3 py-2 shadow-card ${state.mode === 2 && i === state.active ? 'ring-2 ring-offset-1' : ''}" style="border-color:${p.color}55;--tw-ring-color:${p.color}"><span class="mr-1.5 inline-block h-2.5 w-2.5 rounded-full" style="background:${p.color}"></span><span class="text-xs font-extrabold">${escapeHtml(p.name)}</span><span class="ml-2 rounded-full px-2 py-0.5 text-xs font-black text-white" style="background:${p.color}">${p.score}</span></div>`).join('');
+        $('#scoreboard').innerHTML = state.players.map((p,i) => `<div class="flex max-w-xs items-center rounded-2xl border bg-white/80 px-3 py-2 shadow-card ${state.mode === 2 && i === state.active ? 'ring-2 ring-offset-1' : ''}" style="border-color:${p.color}55;--tw-ring-color:${p.color}"><span class="mr-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full" style="background:${p.color}"></span><span class="min-w-0 break-words text-xs font-extrabold">${escapeHtml(p.name)}</span><span class="ml-2 shrink-0 rounded-full px-2 py-0.5 text-xs font-black text-white" style="background:${p.color}">${p.score}</span></div>`).join('');
         state.placed.forEach((p,i) => {
           const li = $(`[data-word-index="${i}"]`); if (!li) return;
           const owner = state.found.get(i);
@@ -967,7 +967,7 @@
             <h2 class="mt-1 font-display text-3xl text-rose-950">${escapeHtml(title)}</h2>
             <p class="mt-3 text-rose-500">Bạn đã tìm trọn vẹn ${state.placed.length} từ của bộ <strong>#${state.currentSet.id} · ${escapeHtml(state.currentSet.title)}</strong> trong <strong>${formatTime(state.elapsed)}</strong>.</p>
             <p id="cloudSaveStatus" class="mt-2 text-xs font-bold text-rose-400">Đang lưu kết quả lên Firebase…</p>
-            <div class="mt-5 flex justify-center gap-3">${state.players.map(p => `<div class="rounded-2xl bg-rose-50 px-4 py-3"><span class="text-sm font-bold" style="color:${p.color}">${escapeHtml(p.name)}</span><strong class="ml-2 text-lg">${p.score}</strong></div>`).join('')}</div>
+            <div class="mt-5 flex flex-wrap justify-center gap-3">${state.players.map(p => `<div class="max-w-full break-words rounded-2xl bg-rose-50 px-4 py-3"><span class="text-sm font-bold" style="color:${p.color}">${escapeHtml(p.name)}</span><strong class="ml-2 text-lg">${p.score}</strong></div>`).join('')}</div>
             ${state.learningEnabled ? '<button data-action="start-review" class="mt-5 w-full rounded-2xl bg-gradient-to-r from-amber-400 to-orange-400 px-4 py-3 text-sm font-extrabold text-white">📚 Ôn nhanh 5 từ vừa gặp</button>' : ''}
             <div class="mt-7 grid grid-cols-2 gap-3">
               <button data-action="close-modal-new" class="rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-3 text-sm font-extrabold text-white">Chơi màn mới</button>
