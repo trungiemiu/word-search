@@ -60,6 +60,7 @@
             else await update(ref(db, `rooms/${code}`), { [`players/${uid}`]: null, guestId: null });
           },
           async hostUpdate(code, value) { await update(ref(db, `rooms/${code}`), value); },
+          async saveResult(uid, key, value) { await set(ref(db, `gameHistory/${uid}/${key}`), value); },
           listenRoom(code, callback, onError) { return onValue(ref(db, `rooms/${code}`), snap => callback(snap.exists() ? snap.val() : null), onError); },
           async transactGame(code, change) {
             return runTransaction(ref(db, `rooms/${code}/game`), game => game ? change(game) : game, { applyLocally: false });
@@ -104,6 +105,8 @@
     }
     .letter-cell.preview { transform: scale(.91); color: white; box-shadow: inset 0 0 0 2px rgba(255,255,255,.5); }
     .letter-cell.found { color: white; border-color: transparent; text-shadow: 0 1px 2px rgba(80,0,30,.22); }
+    .letter-cell.hint { animation: hintPulse .6s ease-in-out 3; color: #9a3412; background: #fde68a !important; box-shadow: 0 0 0 3px rgba(251,191,36,.35); }
+    @keyframes hintPulse { 50% { transform: scale(.86); filter: brightness(1.06); } }
     .board-paused #letterGrid { filter: blur(8px); opacity: .33; pointer-events: none; }
     .modal-backdrop { background: rgba(72, 20, 45, .38); backdrop-filter: blur(8px); }
     .heart { position: fixed; bottom: -40px; z-index: 80; pointer-events: none; animation: fly var(--duration) ease-in forwards; color: var(--color); font-size: var(--size); }
@@ -111,6 +114,8 @@
     .toast { animation: toastIn .25s ease both, toastOut .3s ease 2.4s forwards; }
     @keyframes toastIn { from { opacity:0; transform:translate(-50%, 12px) } to { opacity:1; transform:translate(-50%,0) } }
     @keyframes toastOut { to { opacity:0; transform:translate(-50%,-8px) } }
+    .learning-card { animation: learnIn .25s ease both; }
+    @keyframes learnIn { from { opacity: 0; transform: translateY(12px) scale(.97) } to { opacity: 1; transform: none } }
     @media (max-width: 380px) {
       #letterGrid { grid-auto-rows: 1.2rem; }
       .letter-cell { font-size: .62rem; border-radius: .2rem; }
@@ -185,6 +190,10 @@
                   </div>
                   <p class="mt-3 text-xs leading-relaxed text-rose-400">Người tạo phòng sẽ chọn bộ từ. Gửi mã hoặc link mời cho người còn lại.</p>
                 </div>
+                <label class="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-amber-100 bg-amber-50/80 px-4 py-3">
+                  <span><strong class="block text-sm text-amber-800">📚 Học từ trong lúc chơi</strong><small class="mt-0.5 block text-xs text-amber-600">Chạm vào từ để xem nghĩa; tìm đúng sẽ hiện thẻ học nhanh.</small></span>
+                  <input id="learningMode" type="checkbox" checked class="h-5 w-5 shrink-0 accent-pink-500" />
+                </label>
               </div>
               <p id="formError" class="mt-4 hidden rounded-xl bg-rose-50 px-3 py-2 text-center text-sm font-bold text-rose-600" role="alert"></p>
               <button id="startButton" type="submit" disabled class="mt-7 w-full rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 px-5 py-3.5 font-extrabold text-white shadow-lg shadow-pink-200 transition hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-pink-200 disabled:cursor-not-allowed disabled:opacity-50">Bắt đầu chơi <span class="ml-1">→</span></button>
@@ -237,6 +246,7 @@
 
             <aside class="order-3 flex flex-row justify-center gap-2 lg:col-span-2 xl:col-span-1 xl:flex-col">
               <button data-action="pause" class="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-white px-3 py-3 text-sm font-extrabold text-rose-700 shadow-card transition hover:bg-rose-50"><span>Ⅱ</span> <span class="hidden sm:inline">Tạm dừng</span></button>
+              <button data-action="hint" class="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3 text-sm font-extrabold text-amber-700 shadow-card transition hover:bg-amber-100"><span>✦</span> <span class="hidden sm:inline">Gợi ý</span></button>
               <button data-action="new" class="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-white px-3 py-3 text-sm font-extrabold text-rose-700 shadow-card transition hover:bg-rose-50"><span>↻</span> <span class="hidden sm:inline">Đổi màn</span></button>
               <button data-action="history" class="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-white px-3 py-3 text-sm font-extrabold text-rose-700 shadow-card transition hover:bg-rose-50"><span>♧</span> <span class="hidden sm:inline">Lịch sử</span></button>
             </aside>
@@ -251,6 +261,7 @@
   <div id="modal" class="modal-backdrop fixed inset-0 z-50 hidden items-center justify-center p-4" role="dialog" aria-modal="true">
     <div id="modalContent" class="max-h-[88vh] w-full max-w-lg overflow-auto rounded-[2rem] bg-white p-6 shadow-soft sm:p-8"></div>
   </div>
+  <aside id="learningCard" class="learning-card fixed bottom-3 left-3 right-3 z-40 hidden max-h-[70vh] overflow-auto rounded-[1.5rem] border border-amber-100 bg-white/95 p-4 shadow-soft backdrop-blur sm:bottom-5 sm:left-auto sm:right-5 sm:w-[22rem]" aria-live="polite"></aside>
   <div id="toastHost" aria-live="polite"></div>
 
   <script>
@@ -262,7 +273,7 @@
       const COLORS = ['#ec4899', '#8b5cf6', '#0ea5e9', '#f97316', '#14b8a6', '#e11d48'];
       let DATABASE = [];
       const DIRECTIONS = [
-        [0,1], [0,-1], [1,0], [-1,0], [1,1], [-1,-1], [1,-1], [-1,1]
+        [0,1], [1,0], [1,1], [-1,1]
       ];
 
       const $ = (s, root = document) => root.querySelector(s);
@@ -272,7 +283,9 @@
         selecting: false, startCell: null, preview: [], elapsed: 0, timerId: null,
         startedAt: null, paused: false, completed: false, currentSet: null, requestedSetId: 'random',
         roomCode: null, uid: null, isHost: false, roomUnsubscribe: null, onlineGame: null,
-        onlineStarting: false, completionShown: false, firebase: null
+        onlineStarting: false, completionShown: false, firebase: null, wordListSignature: '', hintTimer: null,
+        learningEnabled: true, learningTimer: null, learningRequest: 0, vocabularyCache: {}, currentVocabulary: null,
+        reviewQueue: [], reviewPosition: 0, reviewRemembered: 0, reviewActive: false
       };
 
       function renderColorPickers() {
@@ -284,6 +297,7 @@
 
       function setupWelcome() {
         renderColorPickers();
+        state.vocabularyCache = getStoredObject('loveLettersVocabularyCache');
         $$('input[name="mode"]').forEach(input => input.addEventListener('change', updateSetupMode));
         $$('input[name="onlineAction"]').forEach(input => input.addEventListener('change', updateSetupMode));
         document.addEventListener('click', e => {
@@ -293,8 +307,10 @@
             $$('.color-choice', parent).forEach(b => b.classList.remove('active'));
             colorBtn.classList.add('active');
           }
-          const action = e.target.closest('[data-action]')?.dataset.action;
-          if (action) handleAction(action);
+          const actionButton = e.target.closest('[data-action]');
+          if (actionButton) handleAction(actionButton.dataset.action, actionButton);
+          const wordButton = e.target.closest('[data-learn-index]');
+          if (wordButton && !actionButton) showVocabulary(Number(wordButton.dataset.learnIndex), false);
         });
         $('#setupForm').addEventListener('submit', startFromForm);
         loadDatabase();
@@ -353,6 +369,7 @@
         if (mode === 2 && color1 === color2) return showFormError('Mỗi người cần một màu đại diện riêng biệt!');
         error.classList.add('hidden');
         state.mode = mode;
+        state.learningEnabled = $('#learningMode').checked;
         state.requestedSetId = $('#setSelect').value;
         state.players = [{ name: name1, color: color1, score: 0 }];
         if (mode === 2) state.players.push({ name: name2, color: color2, score: 0 });
@@ -439,7 +456,7 @@
                 const game = {
                   grid: puzzle.grid,
                   placed: puzzle.placed.map(({label, word, start, end, dr, dc}) => ({label, word, start, end, dr, dc})),
-                  found: {}, activeUid: room.hostId, startedAt: Date.now(), paused: false,
+                  found: {}, startedAt: Date.now(), paused: false,
                   pausedAt: 0, pausedTotal: 0, completed: false, round: 1
                 };
                 await state.firebase.hostUpdate(state.roomCode, { status: 'playing', playerOrder: [room.hostId, playerIds.find(id => id !== room.hostId)], game });
@@ -467,6 +484,7 @@
       function applyOnlineRoom(room) {
         const order = room.playerOrder || Object.keys(room.players || {});
         const foundEntries = Object.entries(room.game.found || {}).filter(([, owner]) => typeof owner === 'string' && owner);
+        const newlyFoundByMe = foundEntries.find(([index, uid]) => uid === state.uid && !state.found.has(Number(index)));
         state.players = order.map(uid => ({ ...room.players[uid], uid, score: foundEntries.filter(([,owner]) => owner === uid).length }));
         state.currentSet = DATABASE.find(set => Number(set.id) === Number(room.setId)) || DATABASE[0];
         state.grid = room.game.grid;
@@ -477,7 +495,6 @@
           const p = state.placed[index];
           for (let k = 0; k < p.word.length; k++) state.owners[p.start[0] + p.dr*k][p.start[1] + p.dc*k].push(owner);
         });
-        state.active = Math.max(0, order.indexOf(room.game.activeUid));
         state.onlineGame = room.game;
         state.paused = !!room.game.paused;
         state.completed = !!room.game.completed;
@@ -487,6 +504,7 @@
         $('#pauseOverlay').classList.toggle('flex', state.paused);
         renderGame();
         startTimer();
+        if (newlyFoundByMe && !state.completed) showVocabulary(Number(newlyFoundByMe[0]), true);
         if (state.completed && !state.completionShown) finishGame();
       }
 
@@ -531,8 +549,8 @@
           let success = true;
           for (let wi = 0; wi < words.length; wi++) {
             const item = words[wi];
-            const primary = directionOrder[wi % 8];
-            const candidates = wi < 8 ? [primary] : shuffle(DIRECTIONS);
+            const primary = directionOrder[wi % DIRECTIONS.length];
+            const candidates = wi < DIRECTIONS.length ? [primary] : shuffle(DIRECTIONS);
             const placements = [];
             for (const [dr, dc] of candidates) {
               for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
@@ -568,7 +586,7 @@
           if (!state.isHost) return showToast('Chỉ người tạo phòng mới có thể đổi màn ♡');
           return resetOnlinePuzzle();
         }
-        stopTimer();
+        stopTimer(); hideLearningCard();
         const chosen = state.requestedSetId === 'random'
           ? DATABASE[Math.floor(Math.random() * DATABASE.length)]
           : DATABASE.find(set => String(set.id) === String(state.requestedSetId));
@@ -588,6 +606,7 @@
       }
 
       async function resetOnlinePuzzle() {
+        hideLearningCard();
         const chosen = state.requestedSetId === 'random'
           ? DATABASE[Math.floor(Math.random() * DATABASE.length)]
           : DATABASE.find(set => String(set.id) === String(state.requestedSetId));
@@ -596,7 +615,7 @@
         const game = {
           grid: puzzle.grid,
           placed: puzzle.placed.map(({label, word, start, end, dr, dc}) => ({label, word, start, end, dr, dc})),
-          found: {}, activeUid: state.players[0].uid, startedAt: Date.now(), paused: false,
+          found: {}, startedAt: Date.now(), paused: false,
           pausedAt: 0, pausedTotal: 0, completed: false, round: Number(state.onlineGame?.round || 0) + 1
         };
         state.completionShown = false;
@@ -606,15 +625,26 @@
       function renderGame() {
         $('#setTitle').textContent = `#${String(state.currentSet.id).padStart(3, '0')} · ${state.currentSet.title}`;
         $('#letterGrid').innerHTML = state.grid.flatMap((row, r) => row.map((letter, c) => `<div class="letter-cell" data-r="${r}" data-c="${c}" role="gridcell" aria-label="${letter}, hàng ${r+1}, cột ${c+1}">${letter}</div>`)).join('');
-        $('#wordList').innerHTML = state.placed.map((p, i) => `<li data-word-index="${i}" class="flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 text-sm font-bold text-rose-700 transition"><span class="word-dot h-2 w-2 rounded-full bg-rose-200"></span><span>${p.label}</span></li>`).join('');
+        renderWordList(true);
         bindGridEvents(); updateStatus();
+      }
+
+      function renderWordList(force = false) {
+        const signature = [...state.found.keys()].sort((a,b) => a-b).join(',');
+        if (!force && signature === state.wordListSignature) return;
+        state.wordListSignature = signature;
+        const order = state.placed.map((_, i) => i).sort((a, b) => Number(state.found.has(a)) - Number(state.found.has(b)) || a - b);
+        $('#wordList').innerHTML = order.map(i => {
+          const p = state.placed[i], owner = state.found.get(i), done = owner !== undefined;
+          const color = done ? state.players[owner].color : '#be123c';
+          return `<li data-word-index="${i}" data-learn-index="${i}" class="flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 text-sm font-bold transition ${done ? 'line-through opacity-60' : ''} ${state.learningEnabled ? 'cursor-pointer hover:bg-amber-50' : ''}" style="color:${color}" ${state.learningEnabled ? `role="button" tabindex="0" title="Xem nghĩa và phát âm của ${escapeHtml(p.label)}"` : ''}><span class="word-dot h-2 w-2 rounded-full" style="background:${done ? color : '#fecdd3'}"></span><span class="min-w-0 flex-1">${escapeHtml(p.label)}</span>${state.learningEnabled ? '<span class="text-xs no-underline opacity-50">🔊</span>' : ''}</li>`;
+        }).join('');
       }
 
       function bindGridEvents() {
         const grid = $('#letterGrid');
         grid.addEventListener('pointerdown', e => {
           if (state.paused || state.completed) return;
-          if (state.mode === 'online' && state.players[state.active]?.uid !== state.uid) return showToast('Chưa đến lượt của bạn ♡');
           const cell = e.target.closest('.letter-cell'); if (!cell) return;
           e.preventDefault(); grid.setPointerCapture?.(e.pointerId);
           state.selecting = true; state.startCell = [Number(cell.dataset.r), Number(cell.dataset.c)];
@@ -641,7 +671,8 @@
       function updatePreview(end) {
         clearPreview();
         state.preview = lineCells(state.startCell, end);
-        const color = state.players[state.active].color;
+        const currentPlayer = state.mode === 'online' ? state.players.find(player => player.uid === state.uid) : state.players[state.active];
+        const color = currentPlayer?.color || '#ec4899';
         state.preview.forEach(([r,c]) => {
           const cell = getCell(r,c); cell.classList.add('preview'); cell.style.background = color;
         });
@@ -663,7 +694,7 @@
         if (index >= 0) foundWord(index, selected);
         else {
           showToast(selected.length > 1 ? 'Chưa đúng rồi, thử lại nhé ♡' : 'Kéo qua các chữ theo một đường thẳng');
-          if (state.mode === 'online') advanceOnlineTurn(); else nextTurn();
+          if (state.mode !== 'online') nextTurn();
         }
         state.startCell = null;
       }
@@ -678,6 +709,7 @@
         cells.forEach(([r,c]) => { if (!state.owners[r][c].includes(owner)) state.owners[r][c].push(owner); paintCell(r,c); });
         showToast(`${state.players[owner].name} tìm thấy “${state.placed[index].label}” ♥`, state.players[owner].color);
         updateStatus();
+        showVocabulary(index, true);
         if (state.found.size === state.placed.length) finishGame(); else nextTurn();
       }
 
@@ -691,6 +723,165 @@
 
       function getCell(r,c) { return $(`.letter-cell[data-r="${r}"][data-c="${c}"]`); }
 
+      function showHint() {
+        if (state.paused) return showToast('Hãy tiếp tục ván chơi trước nhé ♡');
+        if (state.completed) return;
+        const choices = state.placed.map((_, i) => i).filter(i => !state.found.has(i));
+        if (!choices.length) return;
+        cancelSelection();
+        clearTimeout(state.hintTimer);
+        $$('.letter-cell.hint').forEach(cell => cell.classList.remove('hint'));
+        const index = choices[Math.floor(Math.random() * choices.length)], word = state.placed[index];
+        const cells = Array.from({length: word.word.length}, (_, k) => [word.start[0] + word.dr*k, word.start[1] + word.dc*k]);
+        cells.forEach(([r,c]) => getCell(r,c)?.classList.add('hint'));
+        const item = $(`[data-word-index="${index}"]`);
+        item?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        showToast(`Gợi ý “${word.label}”: bắt đầu ở hàng ${word.start[0]+1}, cột ${word.start[1]+1} ✦`, '#b45309');
+        state.hintTimer = setTimeout(() => cells.forEach(([r,c]) => { const cell = getCell(r,c); if (cell) { cell.classList.remove('hint'); paintCell(r,c); } }), 1900);
+      }
+
+      function getStoredObject(key) {
+        try { const value = JSON.parse(localStorage.getItem(key) || '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+        catch (_) { return {}; }
+      }
+
+      function saveVocabularyCache() {
+        try {
+          const entries = Object.entries(state.vocabularyCache).sort((a,b) => (b[1].cachedAt || 0) - (a[1].cachedAt || 0)).slice(0, 250);
+          state.vocabularyCache = Object.fromEntries(entries);
+          localStorage.setItem('loveLettersVocabularyCache', JSON.stringify(state.vocabularyCache));
+        } catch (_) {}
+      }
+
+      async function fetchJson(url, timeout = 5500) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeout);
+        try {
+          const response = await fetch(url, { signal: controller.signal });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return await response.json();
+        } finally { clearTimeout(timer); }
+      }
+
+      async function lookupVocabulary(label) {
+        const key = normalizeWord(label);
+        if (state.vocabularyCache[key]) return state.vocabularyCache[key];
+        const dictionaryUrl = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(String(label).trim().toLowerCase())}`;
+        const translationUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(String(label).trim())}&langpair=en%7Cvi`;
+        const [dictionaryResult, translationResult] = await Promise.allSettled([
+          String(label).trim().includes(' ') ? Promise.reject(new Error('Phrase')) : fetchJson(dictionaryUrl),
+          fetchJson(translationUrl)
+        ]);
+        const entry = dictionaryResult.status === 'fulfilled' && Array.isArray(dictionaryResult.value) ? dictionaryResult.value[0] : null;
+        const definition = entry?.meanings?.flatMap(meaning => meaning.definitions || []).find(item => item?.definition);
+        const phoneticItem = entry?.phonetics?.find(item => item?.text || item?.audio);
+        let audio = entry?.phonetics?.find(item => item?.audio)?.audio || '';
+        if (audio.startsWith('//')) audio = `https:${audio}`;
+        const translatedRaw = translationResult.status === 'fulfilled' && Number(translationResult.value?.responseStatus) === 200
+          ? translationResult.value?.responseData?.translatedText : '';
+        const translated = decodeEntities(translatedRaw || '').trim();
+        const sameAsWord = normalizeWord(translated) === key;
+        const item = {
+          meaning: translated && !sameAsWord ? translated : 'Tên riêng hoặc chưa có bản dịch tiếng Việt phù hợp.',
+          phonetic: entry?.phonetic || phoneticItem?.text || '', audio,
+          definition: definition?.definition || '', example: definition?.example || '', cachedAt: Date.now()
+        };
+        if (dictionaryResult.status === 'fulfilled' || translationResult.status === 'fulfilled') {
+          state.vocabularyCache[key] = item; saveVocabularyCache();
+        }
+        return item;
+      }
+
+      async function showVocabulary(index, autoHide = false) {
+        if (!state.learningEnabled || !Number.isInteger(index) || !state.placed[index]) return;
+        const word = state.placed[index], card = $('#learningCard'), request = ++state.learningRequest;
+        clearTimeout(state.learningTimer);
+        state.currentVocabulary = { index, label: word.label, item: null };
+        card.innerHTML = `<div class="flex items-start justify-between gap-3"><div><p class="text-[10px] font-extrabold uppercase tracking-[.22em] text-amber-500">Thẻ học nhanh</p><h3 class="mt-1 text-2xl font-black text-rose-900">${escapeHtml(word.label)}</h3></div><button data-action="close-learning" class="grid h-8 w-8 place-items-center rounded-full bg-amber-50 font-bold text-amber-700" aria-label="Đóng thẻ học">×</button></div><p class="mt-3 animate-pulse text-sm font-bold text-amber-600">Đang tra nghĩa…</p>`;
+        card.classList.remove('hidden');
+        if (autoHide) state.learningTimer = setTimeout(hideLearningCard, 7000);
+        const item = await lookupVocabulary(word.label);
+        if (request !== state.learningRequest) return;
+        state.currentVocabulary.item = item;
+        renderVocabularyCard(word.label, item);
+      }
+
+      function renderVocabularyCard(label, item) {
+        const card = $('#learningCard');
+        const progress = getStoredObject('loveLettersVocabularyProgress')[normalizeWord(label)]?.status;
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-3">
+            <div><p class="text-[10px] font-extrabold uppercase tracking-[.22em] text-amber-500">Thẻ học nhanh</p><h3 class="mt-1 text-2xl font-black text-rose-900">${escapeHtml(label)}</h3>${item.phonetic ? `<p class="text-sm font-bold text-rose-400">${escapeHtml(item.phonetic)}</p>` : ''}</div>
+            <button data-action="close-learning" class="grid h-8 w-8 place-items-center rounded-full bg-amber-50 font-bold text-amber-700" aria-label="Đóng thẻ học">×</button>
+          </div>
+          <div class="mt-3 rounded-2xl bg-amber-50 px-4 py-3"><p class="text-[10px] font-extrabold uppercase tracking-wider text-amber-500">Nghĩa tiếng Việt</p><p class="mt-1 font-extrabold text-amber-950">${escapeHtml(item.meaning)}</p></div>
+          ${item.definition ? `<p class="mt-3 text-sm leading-relaxed text-rose-600"><strong>English:</strong> ${escapeHtml(item.definition)}</p>` : ''}
+          ${item.example ? `<p class="mt-2 text-sm italic leading-relaxed text-rose-400">“${escapeHtml(item.example)}”</p>` : ''}
+          <div class="mt-4 grid grid-cols-3 gap-2">
+            <button data-action="speak-word" data-word="${encodeURIComponent(label)}" data-audio="${encodeURIComponent(item.audio || '')}" class="rounded-xl bg-rose-500 px-2 py-2 text-xs font-extrabold text-white">🔊 Nghe</button>
+            <button data-action="mark-known" class="rounded-xl bg-emerald-50 px-2 py-2 text-xs font-extrabold text-emerald-700 ${progress === 'known' ? 'ring-2 ring-emerald-300' : ''}">✓ Đã nhớ</button>
+            <button data-action="mark-review" class="rounded-xl bg-amber-100 px-2 py-2 text-xs font-extrabold text-amber-800 ${progress === 'review' ? 'ring-2 ring-amber-400' : ''}">↻ Ôn lại</button>
+          </div>`;
+      }
+
+      function hideLearningCard() {
+        clearTimeout(state.learningTimer); state.learningTimer = null; state.learningRequest++;
+        state.currentVocabulary = null; $('#learningCard').classList.add('hidden');
+      }
+
+      function speakWord(word, audio = '') {
+        if (audio) { try { new Audio(audio).play().catch(() => speakWithBrowser(word)); return; } catch (_) {} }
+        speakWithBrowser(word);
+      }
+
+      function speakWithBrowser(word) {
+        if (!('speechSynthesis' in window)) return showToast('Trình duyệt này chưa hỗ trợ đọc từ.');
+        speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(word);
+        utterance.lang = 'en-US'; utterance.rate = .82; speechSynthesis.speak(utterance);
+      }
+
+      function markVocabulary(label, status) {
+        const progress = getStoredObject('loveLettersVocabularyProgress'), key = normalizeWord(label), old = progress[key] || {};
+        progress[key] = { label, status, seen: Number(old.seen || 0) + 1, updatedAt: Date.now() };
+        try { localStorage.setItem('loveLettersVocabularyProgress', JSON.stringify(progress)); } catch (_) {}
+      }
+
+      function startReview() {
+        hideLearningCard();
+        const progress = getStoredObject('loveLettersVocabularyProgress');
+        state.reviewQueue = shuffle(state.placed.map((word, index) => ({ index, label: word.label })))
+          .sort((a,b) => Number(progress[normalizeWord(b.label)]?.status === 'review') - Number(progress[normalizeWord(a.label)]?.status === 'review')).slice(0, 5);
+        state.reviewPosition = 0; state.reviewRemembered = 0; state.reviewActive = true; showReviewCard();
+      }
+
+      async function showReviewCard() {
+        if (state.reviewPosition >= state.reviewQueue.length) return showReviewResult();
+        const position = state.reviewPosition, word = state.reviewQueue[position];
+        openModal(`<div class="text-center"><p class="text-xs font-extrabold uppercase tracking-[.22em] text-amber-500">Ôn nhanh ${position + 1}/${state.reviewQueue.length}</p><h2 class="mt-4 text-4xl font-black text-rose-950">${escapeHtml(word.label)}</h2><p class="mt-4 animate-pulse text-sm font-bold text-amber-600">Đang chuẩn bị thẻ từ…</p></div>`);
+        const item = await lookupVocabulary(word.label);
+        if (!state.reviewActive || position !== state.reviewPosition) return;
+        openModal(`<div class="text-center">
+          <p class="text-xs font-extrabold uppercase tracking-[.22em] text-amber-500">Ôn nhanh ${position + 1}/${state.reviewQueue.length}</p>
+          <h2 class="mt-4 text-4xl font-black text-rose-950">${escapeHtml(word.label)}</h2>${item.phonetic ? `<p class="mt-1 font-bold text-rose-400">${escapeHtml(item.phonetic)}</p>` : ''}
+          <button data-action="speak-word" data-word="${encodeURIComponent(word.label)}" data-audio="${encodeURIComponent(item.audio || '')}" class="mt-4 rounded-full bg-rose-50 px-5 py-2 text-sm font-extrabold text-rose-600">🔊 Nghe phát âm</button>
+          <button id="reviewReveal" data-action="review-reveal" class="mt-6 block w-full rounded-2xl bg-gradient-to-r from-amber-400 to-orange-400 px-4 py-3 font-extrabold text-white">Hiện nghĩa</button>
+          <div id="reviewAnswer" class="mt-5 hidden rounded-2xl bg-amber-50 p-4 text-left"><p class="text-[10px] font-extrabold uppercase tracking-wider text-amber-500">Nghĩa tiếng Việt</p><p class="mt-1 text-lg font-extrabold text-amber-950">${escapeHtml(item.meaning)}</p>${item.definition ? `<p class="mt-3 text-sm text-rose-600"><strong>English:</strong> ${escapeHtml(item.definition)}</p>` : ''}</div>
+          <div id="reviewChoices" class="mt-4 hidden grid-cols-2 gap-3"><button data-action="review-again" class="rounded-2xl bg-amber-100 px-4 py-3 text-sm font-extrabold text-amber-800">↻ Cần ôn lại</button><button data-action="review-known" class="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-extrabold text-white">✓ Đã nhớ</button></div>
+        </div>`);
+      }
+
+      function answerReview(remembered) {
+        const word = state.reviewQueue[state.reviewPosition]; if (!word) return;
+        markVocabulary(word.label, remembered ? 'known' : 'review');
+        if (remembered) state.reviewRemembered++;
+        state.reviewPosition++; showReviewCard();
+      }
+
+      function showReviewResult() {
+        state.reviewActive = false;
+        openModal(`<div class="text-center"><div class="text-5xl">📚💖</div><p class="mt-4 text-xs font-extrabold uppercase tracking-[.22em] text-pink-400">Ôn tập hoàn tất</p><h2 class="mt-1 font-display text-3xl">Bạn nhớ ${state.reviewRemembered}/${state.reviewQueue.length} từ</h2><p class="mt-3 text-sm text-rose-400">Những từ chưa nhớ đã được lưu để ưu tiên trong lần ôn sau.</p><div class="mt-7 grid grid-cols-2 gap-3"><button data-action="close-modal-new" class="rounded-2xl bg-rose-500 px-4 py-3 text-sm font-extrabold text-white">Chơi màn mới</button><button data-action="back-welcome" class="rounded-2xl border-2 border-rose-100 px-4 py-3 text-sm font-extrabold text-rose-600">Về màn hình đầu</button></div></div>`);
+      }
+
       function nextTurn() {
         if (state.mode === 2) state.active = (state.active + 1) % state.players.length;
         updateStatus();
@@ -699,32 +890,23 @@
       async function submitOnlineWord(index) {
         const uid = state.uid;
         await state.firebase.transactGame(state.roomCode, game => {
-          if (game.completed || game.paused || game.activeUid !== uid || game.found?.[index]) return game;
+          if (game.completed || game.paused || game.found?.[index]) return game;
           game.found = game.found || {};
           game.found[index] = uid;
-          const order = state.players.map(p => p.uid);
-          game.activeUid = order[(order.indexOf(uid) + 1) % order.length];
           if (Object.values(game.found).filter(Boolean).length === game.placed.length) { game.completed = true; game.endedAt = Date.now(); }
           return game;
         });
       }
 
-      async function advanceOnlineTurn() {
-        const uid = state.uid;
-        await state.firebase.transactGame(state.roomCode, game => {
-          if (game.completed || game.paused || game.activeUid !== uid) return game;
-          const order = state.players.map(p => p.uid);
-          game.activeUid = order[(order.indexOf(uid) + 1) % order.length];
-          return game;
-        });
-      }
-
       function updateStatus() {
+        renderWordList();
         $('#progress').textContent = `${state.found.size}/${state.placed.length}`;
-        $('#turnLabel').innerHTML = state.mode === 2 || state.mode === 'online'
-          ? `Lượt của <span style="color:${state.players[state.active].color}">${escapeHtml(state.players[state.active].name)} ●</span>`
-          : `Cố lên, <span style="color:${state.players[0].color}">${escapeHtml(state.players[0].name)}!</span>`;
-        $('#scoreboard').innerHTML = state.players.map((p,i) => `<div class="rounded-2xl border bg-white/80 px-3 py-2 shadow-card ${(state.mode === 2 || state.mode === 'online') && i === state.active ? 'ring-2 ring-offset-1' : ''}" style="border-color:${p.color}55;--tw-ring-color:${p.color}"><span class="mr-1.5 inline-block h-2.5 w-2.5 rounded-full" style="background:${p.color}"></span><span class="text-xs font-extrabold">${escapeHtml(p.name)}</span><span class="ml-2 rounded-full px-2 py-0.5 text-xs font-black text-white" style="background:${p.color}">${p.score}</span></div>`).join('');
+        $('#turnLabel').innerHTML = state.mode === 'online'
+          ? 'Cả hai cùng tìm — ai thấy trước ghi điểm trước ♥'
+          : state.mode === 2
+            ? `Lượt của <span style="color:${state.players[state.active].color}">${escapeHtml(state.players[state.active].name)} ●</span>`
+            : `Cố lên, <span style="color:${state.players[0].color}">${escapeHtml(state.players[0].name)}!</span>`;
+        $('#scoreboard').innerHTML = state.players.map((p,i) => `<div class="rounded-2xl border bg-white/80 px-3 py-2 shadow-card ${state.mode === 2 && i === state.active ? 'ring-2 ring-offset-1' : ''}" style="border-color:${p.color}55;--tw-ring-color:${p.color}"><span class="mr-1.5 inline-block h-2.5 w-2.5 rounded-full" style="background:${p.color}"></span><span class="text-xs font-extrabold">${escapeHtml(p.name)}</span><span class="ml-2 rounded-full px-2 py-0.5 text-xs font-black text-white" style="background:${p.color}">${p.score}</span></div>`).join('');
         state.placed.forEach((p,i) => {
           const li = $(`[data-word-index="${i}"]`); if (!li) return;
           const owner = state.found.get(i);
@@ -776,7 +958,7 @@
         const max = Math.max(...state.players.map(p => p.score));
         const winners = state.players.filter(p => p.score === max);
         const title = state.mode === 1 ? `Tuyệt vời, ${state.players[0].name}!` : winners.length > 1 ? 'Một trận hòa ngọt ngào!' : `${winners[0].name} chiến thắng!`;
-        saveHistory(winners.map(w => w.name).join(' & '));
+        const historyRecord = saveHistory(winners.map(w => w.name).join(' & '));
         launchHearts();
         openModal(`
           <div class="text-center">
@@ -784,22 +966,46 @@
             <p class="mt-5 text-xs font-extrabold uppercase tracking-[.25em] text-pink-400">Hoàn thành</p>
             <h2 class="mt-1 font-display text-3xl text-rose-950">${escapeHtml(title)}</h2>
             <p class="mt-3 text-rose-500">Bạn đã tìm trọn vẹn ${state.placed.length} từ của bộ <strong>#${state.currentSet.id} · ${escapeHtml(state.currentSet.title)}</strong> trong <strong>${formatTime(state.elapsed)}</strong>.</p>
+            <p id="cloudSaveStatus" class="mt-2 text-xs font-bold text-rose-400">Đang lưu kết quả lên Firebase…</p>
             <div class="mt-5 flex justify-center gap-3">${state.players.map(p => `<div class="rounded-2xl bg-rose-50 px-4 py-3"><span class="text-sm font-bold" style="color:${p.color}">${escapeHtml(p.name)}</span><strong class="ml-2 text-lg">${p.score}</strong></div>`).join('')}</div>
+            ${state.learningEnabled ? '<button data-action="start-review" class="mt-5 w-full rounded-2xl bg-gradient-to-r from-amber-400 to-orange-400 px-4 py-3 text-sm font-extrabold text-white">📚 Ôn nhanh 5 từ vừa gặp</button>' : ''}
             <div class="mt-7 grid grid-cols-2 gap-3">
               <button data-action="close-modal-new" class="rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-3 text-sm font-extrabold text-white">Chơi màn mới</button>
               <button data-action="back-welcome" class="rounded-2xl border-2 border-rose-100 px-4 py-3 text-sm font-extrabold text-rose-600">Đổi người chơi</button>
             </div>
           </div>`);
+        setTimeout(() => saveCloudResult(historyRecord), 0);
       }
 
       function saveHistory(winner) {
         const history = getHistory();
-        history.unshift({
+        const record = {
           players: state.players.map(p => ({name:p.name, score:p.score})), mode: state.mode,
           seconds: state.elapsed, date: new Date().toISOString(), winner,
-          setId: state.currentSet.id, setTitle: state.currentSet.title
-        });
+          setId: state.currentSet.id, setTitle: state.currentSet.title,
+          words: state.placed.length, roomCode: state.mode === 'online' ? state.roomCode : null
+        };
+        history.unshift(record);
         try { localStorage.setItem('loveLettersHistory', JSON.stringify(history.slice(0, 50))); } catch (_) {}
+        return record;
+      }
+
+      async function saveCloudResult(record) {
+        const status = $('#cloudSaveStatus');
+        if (state.mode === 'online' && !state.isHost) {
+          if (status) status.textContent = 'Chủ phòng đang lưu kết quả chung lên Firebase.';
+          return;
+        }
+        try {
+          const bridge = state.firebase || await getFirebase();
+          const round = Number(state.onlineGame?.round || 1);
+          const key = state.mode === 'online' ? `online_${state.roomCode}_${round}` : `game_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+          await bridge.saveResult(state.uid, key, { ...record, savedAt: Date.now() });
+          if (status) { status.textContent = 'Đã lưu trên thiết bị và Firebase ✓'; status.classList.replace('text-rose-400', 'text-emerald-600'); }
+        } catch (error) {
+          console.warn('Không thể lưu Firebase:', error);
+          if (status) { status.textContent = 'Đã lưu trên thiết bị; chưa thể lưu Firebase.'; status.classList.replace('text-rose-400', 'text-amber-600'); }
+        }
       }
       function getHistory() { try { return JSON.parse(localStorage.getItem('loveLettersHistory') || '[]'); } catch (_) { return []; } }
 
@@ -818,15 +1024,25 @@
         openModal(`<div class="text-center"><div class="text-4xl">💌</div><h2 class="mt-3 font-display text-3xl">Mình chơi tiếp nhé?</h2><p class="mt-2 text-sm text-rose-400">Ván hiện tại sẽ không được lưu nếu chưa hoàn thành.</p><div class="mt-6 grid gap-3"><button data-action="close-modal-new" class="rounded-2xl bg-rose-500 px-4 py-3 font-extrabold text-white">Tạo bảng chữ mới</button><button data-action="back-welcome" class="rounded-2xl border-2 border-rose-100 px-4 py-3 font-extrabold text-rose-600">Đổi tên / chế độ chơi</button><button data-action="close-modal${wasRunning ? '-resume' : ''}" class="px-4 py-2 text-sm font-bold text-rose-400">Tiếp tục ván này</button></div></div>`);
       }
 
-      function handleAction(action) {
+      function handleAction(action, button) {
         if (action === 'pause') togglePause();
+        else if (action === 'hint') showHint();
         else if (action === 'resume') togglePause(true);
         else if (action === 'new') showNewGameMenu();
         else if (action === 'history') showHistory();
+        else if (action === 'close-learning') hideLearningCard();
+        else if (action === 'speak-word') speakWord(decodeURIComponent(button?.dataset.word || ''), decodeURIComponent(button?.dataset.audio || ''));
+        else if (action === 'mark-known' && state.currentVocabulary) { markVocabulary(state.currentVocabulary.label, 'known'); showToast('Đã lưu là từ bạn nhớ ✓', '#047857'); hideLearningCard(); }
+        else if (action === 'mark-review' && state.currentVocabulary) { markVocabulary(state.currentVocabulary.label, 'review'); showToast('Đã thêm vào danh sách ôn lại ↻', '#b45309'); hideLearningCard(); }
+        else if (action === 'start-review') startReview();
+        else if (action === 'review-reveal') { $('#reviewReveal')?.classList.add('hidden'); $('#reviewAnswer')?.classList.remove('hidden'); $('#reviewChoices')?.classList.remove('hidden'); $('#reviewChoices')?.classList.add('grid'); }
+        else if (action === 'review-known') answerReview(true);
+        else if (action === 'review-again') answerReview(false);
         else if (action === 'close-modal') closeModal();
         else if (action === 'close-modal-resume') { closeModal(); togglePause(true); }
         else if (action === 'close-modal-new') { closeModal(); newPuzzle(); }
         else if (action === 'back-welcome') {
+          hideLearningCard();
           if (state.mode === 'online') quitOnlineRoom();
           else { closeModal(); stopTimer(); $('#gameScreen').classList.add('hidden'); $('#welcomeScreen').classList.remove('hidden'); }
         }
@@ -843,10 +1059,11 @@
       }
 
       function openModal(html) { $('#modalContent').innerHTML = html; $('#modal').classList.remove('hidden'); $('#modal').classList.add('flex'); }
-      function closeModal() { $('#modal').classList.add('hidden'); $('#modal').classList.remove('flex'); delete $('#modal').dataset.kind; }
+      function closeModal() { state.reviewActive = false; $('#modal').classList.add('hidden'); $('#modal').classList.remove('flex'); delete $('#modal').dataset.kind; }
       function formatDate(iso) { return new Intl.DateTimeFormat('vi-VN', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(iso)); }
       function normalizeWord(value) { return String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z]/g, ''); }
       function escapeHtml(value) { const d = document.createElement('div'); d.textContent = String(value); return d.innerHTML; }
+      function decodeEntities(value) { const d = document.createElement('textarea'); d.innerHTML = String(value); return d.value; }
 
       function showToast(message, color = '#ec4899') {
         const el = document.createElement('div');
@@ -866,6 +1083,7 @@
       }
 
       document.addEventListener('keydown', e => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('[data-learn-index]')) { e.preventDefault(); showVocabulary(Number(e.target.dataset.learnIndex), false); return; }
         if (e.key === 'Escape' && !$('#modal').classList.contains('hidden')) closeModal();
         else if (e.code === 'Space' && !$('#gameScreen').classList.contains('hidden') && $('#modal').classList.contains('hidden')) { e.preventDefault(); togglePause(); }
       });
