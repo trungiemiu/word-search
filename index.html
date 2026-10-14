@@ -103,7 +103,11 @@
       background: rgba(255,255,255,.74); border: 1px solid rgba(251,207,232,.8);
       transition: transform .12s, background .15s, color .15s, box-shadow .15s;
     }
-    .letter-cell.preview { transform: scale(.91); color: white; box-shadow: inset 0 0 0 2px rgba(255,255,255,.5); }
+    .letter-cell.preview {
+      position: relative; z-index: 5; transform: scale(1.04); color: white;
+      border-color: white; outline: 2px solid var(--selection-color, #ec4899); outline-offset: 1px;
+      box-shadow: inset 0 0 0 2px rgba(255,255,255,.9), 0 3px 8px rgba(80,0,35,.18);
+    }
     .letter-cell.found { color: white; border-color: transparent; text-shadow: 0 1px 2px rgba(80,0,30,.22); }
     .letter-cell.hint { animation: hintPulse .6s ease-in-out 3; color: #9a3412; background: #fde68a !important; box-shadow: 0 0 0 3px rgba(251,191,36,.35); }
     @keyframes hintPulse { 50% { transform: scale(.86); filter: brightness(1.06); } }
@@ -539,7 +543,7 @@
       }
 
       function createPuzzle() {
-        const source = state.currentSet.words.map(label => ({ label: String(label), word: puzzleWord(label) }));
+        const source = state.currentSet.words.map(label => ({ label: String(label), word: normalizeWord(label) }));
         const words = source.filter(item => item.word && item.word.length <= Math.max(ROWS, COLS)).sort((a,b) => b.word.length - a.word.length);
         if (words.length !== source.length) throw new Error('Bộ từ có mục không hợp lệ hoặc quá dài.');
         for (let restart = 0; restart < 240; restart++) {
@@ -577,9 +581,7 @@
             placed.push(placement);
           }
           if (success) {
-            const alphabet = isVietnameseSet()
-              ? [...new Set(`AĂÂBCDĐEÊGHIKLMNOÔƠPQRSTUƯVXY${words.map(item => item.word).join('')}`)].join('')
-              : 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
             for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (!grid[r][c]) grid[r][c] = alphabet[Math.floor(Math.random()*alphabet.length)];
             return { grid, placed };
           }
@@ -687,12 +689,12 @@
         const currentPlayer = state.mode === 'online' ? state.players.find(player => player.uid === state.uid) : state.players[state.active];
         const color = currentPlayer?.color || '#ec4899';
         state.preview.forEach(([r,c]) => {
-          const cell = getCell(r,c); cell.classList.add('preview'); cell.style.background = color;
+          const cell = getCell(r,c); cell.classList.add('preview'); cell.style.background = color; cell.style.setProperty('--selection-color', color);
         });
       }
 
       function clearPreview() {
-        state.preview.forEach(([r,c]) => { const el = getCell(r,c); el.classList.remove('preview'); paintCell(r,c); });
+        state.preview.forEach(([r,c]) => { const el = getCell(r,c); el.classList.remove('preview'); el.style.removeProperty('--selection-color'); paintCell(r,c); });
         state.preview = [];
       }
 
@@ -1083,10 +1085,6 @@
       function isVietnameseSet(set = state.currentSet) {
         const id = Number(set?.id);
         return set?.language === 'vi' || (id >= 274 && id <= 281);
-      }
-      function puzzleWord(value) {
-        if (isVietnameseSet()) return String(value).normalize('NFC').toUpperCase().replace(/[^A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/g, '');
-        return normalizeWord(value);
       }
       function normalizeWord(value) { return String(value).replace(/Đ/g, 'D').replace(/đ/g, 'd').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z]/g, ''); }
       function escapeHtml(value) { const d = document.createElement('div'); d.textContent = String(value); return d.innerHTML; }
