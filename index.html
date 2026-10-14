@@ -625,8 +625,15 @@
       function renderGame() {
         $('#setTitle').textContent = `#${String(state.currentSet.id).padStart(3, '0')} · ${state.currentSet.title}`;
         $('#letterGrid').innerHTML = state.grid.flatMap((row, r) => row.map((letter, c) => `<div class="letter-cell" data-r="${r}" data-c="${c}" role="gridcell" aria-label="${letter}, hàng ${r+1}, cột ${c+1}">${letter}</div>`)).join('');
+        repaintFoundCells();
         renderWordList(true);
         bindGridEvents(); updateStatus();
+      }
+
+      function repaintFoundCells() {
+        for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+          if (state.owners?.[r]?.[c]?.length) paintCell(r, c);
+        }
       }
 
       function renderWordList(force = false) {
