@@ -539,7 +539,7 @@
       }
 
       function createPuzzle() {
-        const source = state.currentSet.words.map(label => ({ label: String(label), word: normalizeWord(label) }));
+        const source = state.currentSet.words.map(label => ({ label: String(label), word: puzzleWord(label) }));
         const words = source.filter(item => item.word && item.word.length <= Math.max(ROWS, COLS)).sort((a,b) => b.word.length - a.word.length);
         if (words.length !== source.length) throw new Error('Bộ từ có mục không hợp lệ hoặc quá dài.');
         for (let restart = 0; restart < 240; restart++) {
@@ -562,7 +562,11 @@
                   if (old && old !== item.word[k]) { fits = false; break; }
                   if (old === item.word[k]) overlaps++;
                 }
-                if (fits) placements.push({ ...item, start:[r,c], end:[er,ec], dr, dc, overlaps });
+                if (fits) {
+                  const cellKeys = Array.from({length: item.word.length}, (_, k) => `${r + dr*k},${c + dc*k}`);
+                  const stacked = placed.some(existing => existing.dr === dr && existing.dc === dc && existing.cellKeys?.some(key => cellKeys.includes(key)));
+                  if (!stacked) placements.push({ ...item, start:[r,c], end:[er,ec], dr, dc, overlaps, cellKeys });
+                }
               }
             }
             const bestOverlap = placements.length ? Math.max(...placements.map(p => p.overlaps)) : -1;
@@ -573,7 +577,9 @@
             placed.push(placement);
           }
           if (success) {
-            const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            const alphabet = isVietnameseSet()
+              ? [...new Set(`AĂÂBCDĐEÊGHIKLMNOÔƠPQRSTUƯVXY${words.map(item => item.word).join('')}`)].join('')
+              : 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
             for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (!grid[r][c]) grid[r][c] = alphabet[Math.floor(Math.random()*alphabet.length)];
             return { grid, placed };
           }
@@ -771,12 +777,15 @@
       }
 
       async function lookupVocabulary(label) {
-        const key = normalizeWord(label);
+        const vietnamese = isVietnameseSet();
+        const sourceLanguage = vietnamese ? 'vi' : 'en';
+        const targetLanguage = vietnamese ? 'en' : 'vi';
+        const key = `v3:${sourceLanguage}:${normalizeWord(label)}`;
         if (state.vocabularyCache[key]) return state.vocabularyCache[key];
         const dictionaryUrl = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(String(label).trim().toLowerCase())}`;
-        const translationUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(String(label).trim())}&langpair=en%7Cvi`;
+        const translationUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(String(label).trim())}&langpair=${sourceLanguage}%7C${targetLanguage}`;
         const [dictionaryResult, translationResult] = await Promise.allSettled([
-          String(label).trim().includes(' ') ? Promise.reject(new Error('Phrase')) : fetchJson(dictionaryUrl),
+          vietnamese || String(label).trim().includes(' ') ? Promise.reject(new Error('No English dictionary lookup')) : fetchJson(dictionaryUrl),
           fetchJson(translationUrl)
         ]);
         const entry = dictionaryResult.status === 'fulfilled' && Array.isArray(dictionaryResult.value) ? dictionaryResult.value[0] : null;
@@ -787,9 +796,12 @@
         const translatedRaw = translationResult.status === 'fulfilled' && Number(translationResult.value?.responseStatus) === 200
           ? translationResult.value?.responseData?.translatedText : '';
         const translated = decodeEntities(translatedRaw || '').trim();
-        const sameAsWord = normalizeWord(translated) === key;
+        const sameAsWord = normalizeWord(translated) === normalizeWord(label);
+        const isPlaceName = vietnamese && Number(state.currentSet?.id) >= 278;
         const item = {
-          meaning: translated && !sameAsWord ? translated : 'Tên riêng hoặc chưa có bản dịch tiếng Việt phù hợp.',
+          meaning: translated && !sameAsWord ? translated : isPlaceName ? 'Tên riêng hoặc địa danh Việt Nam.' : `Chưa có bản dịch tiếng ${vietnamese ? 'Anh' : 'Việt'} phù hợp.`,
+          meaningLabel: vietnamese ? 'Nghĩa tiếng Anh' : 'Nghĩa tiếng Việt',
+          speechLang: vietnamese ? 'vi-VN' : 'en-US',
           phonetic: entry?.phonetic || phoneticItem?.text || '', audio,
           definition: definition?.definition || '', example: definition?.example || '', cachedAt: Date.now()
         };
@@ -821,11 +833,11 @@
             <div><p class="text-[10px] font-extrabold uppercase tracking-[.22em] text-amber-500">Thẻ học nhanh</p><h3 class="mt-1 text-2xl font-black text-rose-900">${escapeHtml(label)}</h3>${item.phonetic ? `<p class="text-sm font-bold text-rose-400">${escapeHtml(item.phonetic)}</p>` : ''}</div>
             <button data-action="close-learning" class="grid h-8 w-8 place-items-center rounded-full bg-amber-50 font-bold text-amber-700" aria-label="Đóng thẻ học">×</button>
           </div>
-          <div class="mt-3 rounded-2xl bg-amber-50 px-4 py-3"><p class="text-[10px] font-extrabold uppercase tracking-wider text-amber-500">Nghĩa tiếng Việt</p><p class="mt-1 font-extrabold text-amber-950">${escapeHtml(item.meaning)}</p></div>
+          <div class="mt-3 rounded-2xl bg-amber-50 px-4 py-3"><p class="text-[10px] font-extrabold uppercase tracking-wider text-amber-500">${escapeHtml(item.meaningLabel || 'Nghĩa tiếng Việt')}</p><p class="mt-1 font-extrabold text-amber-950">${escapeHtml(item.meaning)}</p></div>
           ${item.definition ? `<p class="mt-3 text-sm leading-relaxed text-rose-600"><strong>English:</strong> ${escapeHtml(item.definition)}</p>` : ''}
           ${item.example ? `<p class="mt-2 text-sm italic leading-relaxed text-rose-400">“${escapeHtml(item.example)}”</p>` : ''}
           <div class="mt-4 grid grid-cols-3 gap-2">
-            <button data-action="speak-word" data-word="${encodeURIComponent(label)}" data-audio="${encodeURIComponent(item.audio || '')}" class="rounded-xl bg-rose-500 px-2 py-2 text-xs font-extrabold text-white">🔊 Nghe</button>
+            <button data-action="speak-word" data-word="${encodeURIComponent(label)}" data-audio="${encodeURIComponent(item.audio || '')}" data-lang="${item.speechLang || 'en-US'}" class="rounded-xl bg-rose-500 px-2 py-2 text-xs font-extrabold text-white">🔊 Nghe</button>
             <button data-action="mark-known" class="rounded-xl bg-emerald-50 px-2 py-2 text-xs font-extrabold text-emerald-700 ${progress === 'known' ? 'ring-2 ring-emerald-300' : ''}">✓ Đã nhớ</button>
             <button data-action="mark-review" class="rounded-xl bg-amber-100 px-2 py-2 text-xs font-extrabold text-amber-800 ${progress === 'review' ? 'ring-2 ring-amber-400' : ''}">↻ Ôn lại</button>
           </div>`;
@@ -836,15 +848,15 @@
         state.currentVocabulary = null; $('#learningCard').classList.add('hidden');
       }
 
-      function speakWord(word, audio = '') {
-        if (audio) { try { new Audio(audio).play().catch(() => speakWithBrowser(word)); return; } catch (_) {} }
-        speakWithBrowser(word);
+      function speakWord(word, audio = '', lang = 'en-US') {
+        if (audio) { try { new Audio(audio).play().catch(() => speakWithBrowser(word, lang)); return; } catch (_) {} }
+        speakWithBrowser(word, lang);
       }
 
-      function speakWithBrowser(word) {
+      function speakWithBrowser(word, lang = 'en-US') {
         if (!('speechSynthesis' in window)) return showToast('Trình duyệt này chưa hỗ trợ đọc từ.');
         speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(word);
-        utterance.lang = 'en-US'; utterance.rate = .82; speechSynthesis.speak(utterance);
+        utterance.lang = lang; utterance.rate = .82; speechSynthesis.speak(utterance);
       }
 
       function markVocabulary(label, status) {
@@ -870,9 +882,9 @@
         openModal(`<div class="text-center">
           <p class="text-xs font-extrabold uppercase tracking-[.22em] text-amber-500">Ôn nhanh ${position + 1}/${state.reviewQueue.length}</p>
           <h2 class="mt-4 text-4xl font-black text-rose-950">${escapeHtml(word.label)}</h2>${item.phonetic ? `<p class="mt-1 font-bold text-rose-400">${escapeHtml(item.phonetic)}</p>` : ''}
-          <button data-action="speak-word" data-word="${encodeURIComponent(word.label)}" data-audio="${encodeURIComponent(item.audio || '')}" class="mt-4 rounded-full bg-rose-50 px-5 py-2 text-sm font-extrabold text-rose-600">🔊 Nghe phát âm</button>
+          <button data-action="speak-word" data-word="${encodeURIComponent(word.label)}" data-audio="${encodeURIComponent(item.audio || '')}" data-lang="${item.speechLang || 'en-US'}" class="mt-4 rounded-full bg-rose-50 px-5 py-2 text-sm font-extrabold text-rose-600">🔊 Nghe phát âm</button>
           <button id="reviewReveal" data-action="review-reveal" class="mt-6 block w-full rounded-2xl bg-gradient-to-r from-amber-400 to-orange-400 px-4 py-3 font-extrabold text-white">Hiện nghĩa</button>
-          <div id="reviewAnswer" class="mt-5 hidden rounded-2xl bg-amber-50 p-4 text-left"><p class="text-[10px] font-extrabold uppercase tracking-wider text-amber-500">Nghĩa tiếng Việt</p><p class="mt-1 text-lg font-extrabold text-amber-950">${escapeHtml(item.meaning)}</p>${item.definition ? `<p class="mt-3 text-sm text-rose-600"><strong>English:</strong> ${escapeHtml(item.definition)}</p>` : ''}</div>
+          <div id="reviewAnswer" class="mt-5 hidden rounded-2xl bg-amber-50 p-4 text-left"><p class="text-[10px] font-extrabold uppercase tracking-wider text-amber-500">${escapeHtml(item.meaningLabel || 'Nghĩa tiếng Việt')}</p><p class="mt-1 text-lg font-extrabold text-amber-950">${escapeHtml(item.meaning)}</p>${item.definition ? `<p class="mt-3 text-sm text-rose-600"><strong>English:</strong> ${escapeHtml(item.definition)}</p>` : ''}</div>
           <div id="reviewChoices" class="mt-4 hidden grid-cols-2 gap-3"><button data-action="review-again" class="rounded-2xl bg-amber-100 px-4 py-3 text-sm font-extrabold text-amber-800">↻ Cần ôn lại</button><button data-action="review-known" class="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-extrabold text-white">✓ Đã nhớ</button></div>
         </div>`);
       }
@@ -1038,7 +1050,7 @@
         else if (action === 'new') showNewGameMenu();
         else if (action === 'history') showHistory();
         else if (action === 'close-learning') hideLearningCard();
-        else if (action === 'speak-word') speakWord(decodeURIComponent(button?.dataset.word || ''), decodeURIComponent(button?.dataset.audio || ''));
+        else if (action === 'speak-word') speakWord(decodeURIComponent(button?.dataset.word || ''), decodeURIComponent(button?.dataset.audio || ''), button?.dataset.lang || 'en-US');
         else if (action === 'mark-known' && state.currentVocabulary) { markVocabulary(state.currentVocabulary.label, 'known'); showToast('Đã lưu là từ bạn nhớ ✓', '#047857'); hideLearningCard(); }
         else if (action === 'mark-review' && state.currentVocabulary) { markVocabulary(state.currentVocabulary.label, 'review'); showToast('Đã thêm vào danh sách ôn lại ↻', '#b45309'); hideLearningCard(); }
         else if (action === 'start-review') startReview();
@@ -1068,7 +1080,15 @@
       function openModal(html) { $('#modalContent').innerHTML = html; $('#modal').classList.remove('hidden'); $('#modal').classList.add('flex'); }
       function closeModal() { state.reviewActive = false; $('#modal').classList.add('hidden'); $('#modal').classList.remove('flex'); delete $('#modal').dataset.kind; }
       function formatDate(iso) { return new Intl.DateTimeFormat('vi-VN', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(iso)); }
-      function normalizeWord(value) { return String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z]/g, ''); }
+      function isVietnameseSet(set = state.currentSet) {
+        const id = Number(set?.id);
+        return set?.language === 'vi' || (id >= 274 && id <= 281);
+      }
+      function puzzleWord(value) {
+        if (isVietnameseSet()) return String(value).normalize('NFC').toUpperCase().replace(/[^A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/g, '');
+        return normalizeWord(value);
+      }
+      function normalizeWord(value) { return String(value).replace(/Đ/g, 'D').replace(/đ/g, 'd').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z]/g, ''); }
       function escapeHtml(value) { const d = document.createElement('div'); d.textContent = String(value); return d.innerHTML; }
       function decodeEntities(value) { const d = document.createElement('textarea'); d.innerHTML = String(value); return d.value; }
 

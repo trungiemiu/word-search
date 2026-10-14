@@ -6,6 +6,8 @@ Từ chưa tìm luôn được ưu tiên ở đầu danh sách. Nút gợi ý l�
 
 Chế độ học từ có thể bật ngay tại màn hình bắt đầu. Người chơi chạm vào từ hoặc tìm đúng để xem nghĩa tiếng Việt, định nghĩa, ví dụ và nghe phát âm mà không làm dừng ván chơi. Cuối ván có phần ôn nhanh 5 từ; tiến độ “Đã nhớ/Cần ôn lại” và dữ liệu tra cứu được lưu trên thiết bị.
 
+Các set tiếng Việt giữ nguyên dấu và chữ Đ trên bảng. Thẻ học tự chuyển sang dịch Việt → Anh và giọng đọc `vi-VN`; địa danh được nhận diện là tên riêng. Hai từ có thể cắt nhau tại một chữ nhưng không được nằm đè lên cùng một hàng, cột hoặc đường chéo.
+
 ## Chạy thử trên máy
 
 Do trình duyệt không cho HTML mở trực tiếp đọc file JSON, hãy chạy một web server tại thư mục này:
